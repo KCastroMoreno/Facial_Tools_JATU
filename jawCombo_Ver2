@@ -1,0 +1,189 @@
+import maya.cmds as cmds
+
+# Global config
+C_name = 'Face:'
+Ctrl_name = 'face_main_ctrl.'
+
+# === CONFIG ===
+Ani_shapeNames = ['SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher', 'LipCornerDepressor']
+HUD_shapeNames = ['SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher', 'LipCornerDepressor']
+JawShape = ['JawOpen']
+
+# === ATTRIBUTE PATH HELPERS ===
+def ctrl_attr_path(attr_name):
+    return C_name + Ctrl_name + attr_name
+
+def blendshape_attr_path(attr_name):
+    return 'HUDkcm_blendShape.' + attr_name
+
+# === BLENDSHAPE CREATION AND ANIMATION ===
+def create_and_animate_blendshapes():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+    all_targets = HUD_shapeNames + JawShape
+    targets = [cmds.duplicate(base_cube, name=name)[0] for name in all_targets]
+    blendshape_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+
+    print("✅ BlendShape '{}' created on '{}'.".format(blendshape_node, base_cube))
+
+    start_frame = int(cmds.textField('b2', q=1, tx=1))
+    current_time = start_frame
+
+    for shape in HUD_shapeNames:
+        attr = blendshape_attr_path(shape)
+
+        cmds.setKeyframe(attr, value=0, t=current_time)
+        cmds.setKeyframe(attr, value=100, t=current_time + 10)
+        cmds.setKeyframe(attr, value=100, t=current_time + 20)
+        cmds.setKeyframe(attr, value=0, t=current_time + 30)
+
+        for jaw in JawShape:
+            jaw_attr = blendshape_attr_path(jaw)
+            cmds.setKeyframe(jaw_attr, value=0, t=current_time + 10)
+            cmds.setKeyframe(jaw_attr, value=100, t=current_time + 20)
+            cmds.setKeyframe(jaw_attr, value=100, t=current_time + 30)
+            cmds.setKeyframe(jaw_attr, value=0, t=current_time + 40)
+
+        current_time += 40
+
+    cmds.playbackOptions(minTime=start_frame, maxTime=current_time + 10)
+    print("✅ Shapes keyed from frame {} to {}.".format(start_frame, current_time + 10))
+
+# === ACTIVE HUD DISPLAY ===
+def Getting_names_from_UI():
+    active_shapes = []
+    for shape in HUD_shapeNames + JawShape:
+        attr = blendshape_attr_path(shape)
+        if cmds.objExists(attr) and cmds.getAttr(attr) > 0.0:
+            active_shapes.append(shape)
+    return ', '.join(active_shapes) if active_shapes else ''
+
+def Show_shapes_names():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        ao=True,
+        dataAlignment="right",
+        decimalPrecision=2,
+        blockSize="large",
+        section=7,
+        vis=True,
+        command=lambda *args: Getting_names_from_UI(),
+        dataFontSize="large",
+        attachToRefresh=True,
+        block=7
+    )
+
+# === ANIMATION LOGIC ===
+def animate_shape_keys(shape_list):
+    current_time = int(cmds.textField('b2', q=1, tx=1))
+
+    for name in shape_list:
+        is_negative = name.endswith('X')
+        shape_base = name[:-1] if is_negative else name
+        peak_value = -100 if is_negative else 100
+
+        has_side = False
+
+        for side in ['l', 'r']:
+            side_attr = ctrl_attr_path(side + shape_base)
+            if cmds.objExists(side_attr):
+                has_side = True
+                cmds.setAttr(side_attr, 0)
+                cmds.setKeyframe(side_attr, t=current_time)
+
+        if has_side:
+            for side in ['l', 'r']:
+                side_attr = ctrl_attr_path(side + shape_base)
+                if cmds.objExists(side_attr):
+                    cmds.setAttr(side_attr, peak_value)
+                    cmds.setKeyframe(side_attr, t=current_time + 10)
+                    cmds.setKeyframe(side_attr, t=current_time + 20)
+                    cmds.setAttr(side_attr, 0)
+                    cmds.setKeyframe(side_attr, t=current_time + 30)
+        else:
+            print("[Warning] No l/r attributes found for {}".format(shape_base))
+
+        for jaw in JawShape:
+            jaw_attr = ctrl_attr_path(jaw)
+            if cmds.objExists(jaw_attr):
+                cmds.setAttr(jaw_attr, 0)
+                cmds.setKeyframe(jaw_attr, t=current_time + 10)
+                cmds.setAttr(jaw_attr, peak_value)
+                cmds.setKeyframe(jaw_attr, t=current_time + 20)
+                cmds.setKeyframe(jaw_attr, t=current_time + 30)
+                cmds.setAttr(jaw_attr, 0)
+                cmds.setKeyframe(jaw_attr, t=current_time + 40)
+            else:
+                print("[Warning] Jaw attribute not found: {}".format(jaw))
+
+        current_time += 40
+
+    print("✅ Animation complete.")
+
+# === CLEANUP ===
+def Close_HUD():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if 'HUDShapeNames' in cmds.headsUpDisplay(lh=True):
+        cmds.headsUpDisplay('HUDShapeNames', rem=True)
+
+def clear_shape_keys(shape_list, controller='face_main_ctrl.', namespace='Face:'):
+    Close_HUD()
+    def local_attr_path(attr_name):
+        return namespace + controller + attr_name
+
+    for name in shape_list:
+        shape_base = name[:-1] if name.endswith('X') else name
+        indiv_attr = local_attr_path(shape_base)
+
+        if cmds.objExists(indiv_attr):
+            cmds.cutKey(indiv_attr, clear=True)
+            cmds.setAttr(indiv_attr, 0)
+        else:
+            for side in ['l', 'r']:
+                side_attr = local_attr_path(side + shape_base)
+                if cmds.objExists(side_attr):
+                    cmds.cutKey(side_attr, clear=True)
+                    cmds.setAttr(side_attr, 0)
+
+# === RUN ===
+def KeyShapes():
+    create_and_animate_blendshapes()
+    Show_shapes_names()
+
+def DeleteKeyShapes():
+    clear_shape_keys(Ani_shapeNames)
+
+# === UI ===
+def Dailies_Face_JAW():
+    winName = 'Dailies_Face_JAW'
+    winTitle = 'Jaw_Anim'
+
+    if cmds.window(winName, exists=True):
+        cmds.deleteUI(winName)
+    cmds.window(winName, title=winTitle, widthHeight=(300, 350))
+    cmds.formLayout('mainC', numberOfDivisions=100)
+
+    cmds.text('b1', l='Start Frame')
+    cmds.textField('b2', tx="0", h=22)
+    cmds.button('b3', l='Key Shapes', h=30, c='KeyShapes()')
+    cmds.button('b4', l='Delete Keys Shapes', h=30, c='DeleteKeyShapes()')
+
+    cmds.formLayout('mainC', edit=True, attachForm=[('b1','left',5),('b1','top',5),('b2', 'top',5),('b2','right',5)])
+    cmds.formLayout('mainC', edit=True, attachPosition=[('b1', 'right',5, 50),('b2', 'right',5, 100)])
+    cmds.formLayout('mainC', edit=True, attachControl=[('b2', 'left',5, 'b1')])
+    cmds.formLayout('mainC', edit=True, attachForm=[('b3','left',5),('b3','top',30),('b3','right',5)])
+    cmds.formLayout('mainC', edit=True, attachForm=[('b4','left',5),('b4','top',70),('b4','right',5)])
+
+    cmds.showWindow()
+    cmds.window(winName, e=True, width=300, height=115)
+
+# === Launch UI ===
+Dailies_Face_JAW()
