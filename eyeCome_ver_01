@@ -1,0 +1,39 @@
+import maya.cmds as cmds
+
+# Global config
+C_name = 'Face:'
+Ctrl_name = 'face_main_ctrl.'
+
+Ani_shapeNames = ['EyeIn', 'EyeUp', 'EyeOut', 'EyeDown', 'EyeIn']
+
+def attr_path(attr_name):
+    return C_name + Ctrl_name + attr_name
+
+def animate_shape_keys(shape_list):
+    current_time = 0
+
+    for name in shape_list:
+        base_name = name
+
+        for side in ['l', 'r']:
+            attr = attr_path(side + base_name)
+            if not cmds.objExists(attr):
+                print("[Warning] Missing attribute: {}".format(attr))
+                continue
+
+            # A → B → C : 0 → 100 → 0
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=current_time)
+
+            cmds.setAttr(attr, 100)
+            cmds.setKeyframe(attr, t=current_time + 10)
+
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=current_time + 20)
+
+        # Overlap logic: next shape starts at current_time + 10
+        current_time += 10
+
+    print("✅ Overlapping shape animation complete.")
+
+animate_shape_keys(Ani_shapeNames)
