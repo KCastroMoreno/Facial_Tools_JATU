@@ -102,6 +102,28 @@ def Creating_keys_al1():
     Creating_keys(current_time)
         
 
+def clear_all_keys_and_reset():
+    all_shapes = Anim_S_Shapes + Sequence_EyeRolling
+    for name in all_shapes:
+        parts = [name]
+        if name.endswith('UL'):
+            base = name[:-2]
+            parts = [base + 'Upper', base + 'Lower']
+        for part in parts:
+            found = False
+            attr = attr_path(part)
+            if cmds.objExists(attr):
+                cmds.cutKey(attr, clear=True)
+                cmds.setAttr(attr, 0)
+                found = True
+            if not found:
+                for side in ['l', 'r']:
+                    side_attr = attr_path(side + part)
+                    if cmds.objExists(side_attr):
+                        cmds.cutKey(side_attr, clear=True)
+                        cmds.setAttr(side_attr, 0)
+                        
+clear_all_keys_and_reset()
 Creating_keys_al1()
 
 
