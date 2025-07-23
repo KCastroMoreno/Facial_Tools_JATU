@@ -1,0 +1,305 @@
+import maya.cmds as cmds
+
+# Global config
+C_name = 'Face:'
+Ctrl_name = 'face_main_ctrl.'
+
+Anim_S_Shapes = ['EyeOpenClosed', 'EyeWide', 'SquintUL', 'LidTightenerUL']
+Sequence_EyeRolling = ['EyeIn', 'EyeUp', 'EyeOut', 'EyeDown', 'EyeIn']
+Hud_Shapes = ['EyeClosed', 'EyeWide', 'Squint', 'LidTightener']
+All_HUD_Shapes = Hud_Shapes + Sequence_EyeRolling[:-1]
+
+def attr_path(attr_name):
+    return C_name + Ctrl_name + attr_name
+
+# Key ON (0 → 100)
+def key_shape_on(shape_name, start_time):
+    parts = [shape_name]
+    if shape_name.endswith('UL'):
+        base = shape_name[:-2]
+        parts = [base + 'Upper', base + 'Lower']
+    for name in parts:
+        keyed = False
+        attr = attr_path(name)
+        if cmds.objExists(attr):
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=start_time)
+            cmds.setAttr(attr, 100)
+            cmds.setKeyframe(attr, t=start_time + 10)
+            keyed = True
+        if not keyed:
+            for side in ['l', 'r']:
+                side_attr = attr_path(side + name)
+                if cmds.objExists(side_attr):
+                    cmds.setAttr(side_attr, 0)
+                    cmds.setKeyframe(side_attr, t=start_time)
+                    cmds.setAttr(side_attr, 100)
+                    cmds.setKeyframe(side_attr, t=start_time + 10)
+
+# Key OFF (100 → 0)
+def key_shape_off(shape_name, start_time):
+    parts = [shape_name]
+    if shape_name.endswith('UL'):
+        base = shape_name[:-2]
+        parts = [base + 'Upper', base + 'Lower']
+    for name in parts:
+        keyed = False
+        attr = attr_path(name)
+        if cmds.objExists(attr):
+            cmds.setAttr(attr, 100)
+            cmds.setKeyframe(attr, t=start_time)
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=start_time + 10)
+            keyed = True
+        if not keyed:
+            for side in ['l', 'r']:
+                side_attr = attr_path(side + name)
+                if cmds.objExists(side_attr):
+                    cmds.setAttr(side_attr, 100)
+                    cmds.setKeyframe(side_attr, t=start_time)
+                    cmds.setAttr(side_attr, 0)
+                    cmds.setKeyframe(side_attr, t=start_time + 10)
+
+# Animate eye shapes with overlap logic
+def animate_shape_keys(shape_list, start_time):
+    current_time = start_time
+    for name in shape_list:
+        base_name = name
+        for side in ['l', 'r']:
+            attr = attr_path(side + base_name)
+            if not cmds.objExists(attr):
+                print("[Warning] Missing attribute: {}".format(attr))
+                continue
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=current_time)
+            cmds.setAttr(attr, 100)
+            cmds.setKeyframe(attr, t=current_time + 10)
+            cmds.setAttr(attr, 0)
+            cmds.setKeyframe(attr, t=current_time + 20)
+        current_time += 10
+    print("✅ Eye rolling animation complete.")
+
+# Master sequencer
+def Creating_keys(start_time):
+    animate_shape_keys(Sequence_EyeRolling, start_time)
+    current_time = start_time + 60
+    for shape in Anim_S_Shapes:
+        key_shape_on(shape, current_time)
+        animate_shape_keys(Sequence_EyeRolling, current_time + 10)
+        key_shape_off(shape, current_time + 70)
+        current_time += 80
+
+def Creating_keys_al1():
+    current_time = int(cmds.textField('b2', q = 1, tx=1))
+    for shape in Anim_S_Shapes:
+        key_shape_on(shape, current_time)
+        key_shape_off(shape, current_time + 10)
+        current_time += 20
+    Creating_keys(current_time)
+    
+####################### Deleting Shapes
+
+
+def clear_all_keys_and_reset():
+    all_shapes = Anim_S_Shapes + Sequence_EyeRolling
+    for name in all_shapes:
+        parts = [name]
+        if name.endswith('UL'):
+            base = name[:-2]
+            parts = [base + 'Upper', base + 'Lower']
+        for part in parts:
+            found = False
+            attr = attr_path(part)
+            if cmds.objExists(attr):
+                cmds.cutKey(attr, clear=True)
+                cmds.setAttr(attr, 0)
+                found = True
+            if not found:
+                for side in ['l', 'r']:
+                    side_attr = attr_path(side + part)
+                    if cmds.objExists(side_attr):
+                        cmds.cutKey(side_attr, clear=True)
+                        cmds.setAttr(side_attr, 0)
+
+    # Delete HUDkcm_cube if it exists
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+        print("🗑️ Deleted HUDkcm_cube.")
+    else:
+        print("ℹ️ HUDkcm_cube not found, nothing to delete.")
+
+
+
+
+# HUD ATTRIBUTE PATH
+def hud_attr_path(attr_name):
+    return 'HUDkcm_blendShape.{}'.format(attr_name)
+
+# CREATE HUD CUBE AND BLENDSHAPE
+def create_hud_cube_and_blendshape():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+
+    targets = []
+    for shape in All_HUD_Shapes:
+        tgt = cmds.duplicate(base_cube, name=shape)[0]
+        targets.append(tgt)
+
+    blend_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+    print("✅ Created blendShape: {} on cube: {}".format(blend_node, base_cube))
+
+# KEY HUD SHAPES
+def key_hud_shapes(shape_list, start_time):
+    current_time = start_time
+    for shape in shape_list:
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print("[Warning] Missing attribute: {}".format(attr))
+            continue
+        cmds.setKeyframe(attr, value=0, t=current_time)
+        cmds.setKeyframe(attr, value=100, t=current_time + 10)
+        cmds.setKeyframe(attr, value=0, t=current_time + 20)
+        current_time += 20
+    return current_time
+
+# KEY SEQUENCE EYE ROLLING
+def key_sequence_eye_rolling(shape_list, start_time):
+    for i, shape in enumerate(shape_list):
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print("[Warning] Missing attribute: {}".format(attr))
+            continue
+        t0 = start_time + i * 10
+        t1 = t0 + 10
+        t2 = t1 + 10
+        cmds.setKeyframe(attr, value=0, t=t0)
+        cmds.setKeyframe(attr, value=100, t=t1)
+        cmds.setKeyframe(attr, value=0, t=t2)
+    return start_time + len(shape_list) * 10 + 10
+
+# KEY SINGLE HUD SHAPE WITH SEQUENCE AND TURN OFF
+def key_hud_with_sequence_and_off(shape, start_time):
+    attr = hud_attr_path(shape)
+    if not cmds.objExists(attr):
+        print("[Warning] Missing attribute: {}".format(attr))
+        return start_time
+    cmds.setKeyframe(attr, value=0, t=start_time)
+    cmds.setKeyframe(attr, value=100, t=start_time + 10)
+    seq_end_time = key_sequence_eye_rolling(Sequence_EyeRolling, start_time + 10)
+    cmds.setKeyframe(attr, value=100, t=seq_end_time)
+    cmds.setKeyframe(attr, value=0, t=seq_end_time + 10)
+    return seq_end_time + 10
+
+# RUN HUD ANIMATION
+def run_hud_animation():
+    create_hud_cube_and_blendshape()
+    start_frame = int(cmds.textField('b2', q = 1, tx=1))
+    end_of_hud_keys = key_hud_shapes(Hud_Shapes, start_frame)
+    end_of_eye_roll = key_sequence_eye_rolling(Sequence_EyeRolling, end_of_hud_keys)
+    current_time = end_of_eye_roll
+    for shape in Hud_Shapes:
+        current_time = key_hud_with_sequence_and_off(shape, current_time)
+    cmds.playbackOptions(minTime=start_frame, maxTime=current_time)
+    print("✅ Timeline adjusted to {} → {}".format(start_frame, current_time))
+
+# CLEANUP DUPLICATE HUDS
+def cleanup_duplicate_huds():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    print("✅ Removed duplicate HUDs from block 7.")
+
+# GET ACTIVE SHAPES
+def get_active_shapes_from_whitelist():
+    node = 'HUDkcm_blendShape'
+    if not cmds.objExists(node):
+        return ''
+    active_shapes = []
+    for shape in All_HUD_Shapes:
+        attr = '{}.{}'.format(node, shape)
+        if cmds.objExists(attr):
+            try:
+                value = cmds.getAttr(attr)
+                if value > 0.0:
+                    active_shapes.append(shape)
+            except:
+                continue
+    return ', '.join(sorted(set(active_shapes)))
+
+# DISPLAY ACTIVE HUD SHAPES
+def show_filtered_hud_display():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        section=7,
+        block=7,
+        blockSize='medium',
+        dataFontSize='large',
+        dataAlignment='left',
+        command=get_active_shapes_from_whitelist,
+        attachToRefresh=True
+    )
+
+
+clear_all_keys_and_reset()
+
+def Key_ALL():
+    Creating_keys_al1()
+    run_hud_animation()
+    cleanup_duplicate_huds()
+    show_filtered_hud_display()
+
+
+
+##### UI
+def Dailies_Face_Eyes():
+    winName = 'Dailies_Face_Eyes'
+    winTitle = 'Eyes_Anim'
+    winWidth = 600
+    
+    if cmds.window(winName, exists=True):
+        cmds.deleteUI(winName)
+    cmds.window(winName,menuBar = True, title= winTitle, widthHeight=(300, 350))
+    cmds.formLayout('mainC',numberOfDivisions=100)
+    
+    
+    cmds.text('b1',l = 'Start Frame')
+    cmds.textField('b2',tx = "0", h = 22)
+    cmds.button('b3',l= 'Key Shapes' ,h= 30, c= 'Key_ALL()')
+    cmds.button('b4',l= 'Delete Keys Shapes' ,h= 30, c= 'clear_all_keys_and_reset()')
+
+    ###
+
+ 
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b1','left',5),('b1','top',5),('b2', 'top',5),('b2','right',5)])
+    cmds.formLayout('mainC', edit=True, attachPosition=[('b1', 'right',5, 50),('b2', 'right',5, 100)])
+    cmds.formLayout( 'mainC', edit=True, attachControl=[('b2', 'left',5, 'b1')])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b3','left',5),('b3','top',30),('b3','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b4','left',5),('b4','top',70),('b4','right',5)])
+    #####
+
+
+
+
+      
+    cmds.showWindow()
+    cmds.window(winName, e=True, width=300, height=115)
+    
+
+Dailies_Face_Eyes()
