@@ -1,0 +1,159 @@
+import maya.cmds as cmds
+
+# === SHAPE LISTS ===
+Hud_Shapes = ['EyeOpenClosed', 'EyeWide', 'Squint', 'LidTightener']
+Sequence_EyeRolling = ['EyeIn', 'EyeUp', 'EyeOut', 'EyeDown', 'EyeIn']
+All_HUD_Shapes = Hud_Shapes + Sequence_EyeRolling[:-1]
+
+# === ATTRIBUTE PATH ===
+def hud_attr_path(attr_name):
+    return f'HUDkcm_blendShape.{attr_name}'
+
+# === CREATE HUD CUBE AND BLENDSHAPE ===
+def create_hud_cube_and_blendshape():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+
+    targets = []
+    for shape in All_HUD_Shapes:
+        tgt = cmds.duplicate(base_cube, name=shape)[0]
+        targets.append(tgt)
+
+    blend_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+    print(f"✅ Created blendShape: {blend_node} on cube: {base_cube}")
+
+# === KEY HUD SHAPES NORMALLY ===
+def key_hud_shapes(shape_list, start_time):
+    current_time = start_time
+
+    for shape in shape_list:
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print(f"[Warning] Missing attribute: {attr}")
+            continue
+
+        cmds.setKeyframe(attr, value=0, t=current_time)
+        cmds.setKeyframe(attr, value=100, t=current_time + 10)
+        cmds.setKeyframe(attr, value=0, t=current_time + 20)
+
+        current_time += 20
+
+    return current_time
+
+# === KEY SEQUENCE SHAPES WITH OVERLAP ===
+def key_sequence_eye_rolling(shape_list, start_time):
+    for i, shape in enumerate(shape_list):
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print(f"[Warning] Missing attribute: {attr}")
+            continue
+
+        t0 = start_time + i * 10
+        t1 = t0 + 10
+        t2 = t1 + 10
+
+        cmds.setKeyframe(attr, value=0, t=t0)
+        cmds.setKeyframe(attr, value=100, t=t1)
+        cmds.setKeyframe(attr, value=0, t=t2)
+
+    return start_time + len(shape_list) * 10 + 10
+
+# === KEY SINGLE HUD SHAPE WITH SEQUENCE AND TURN OFF ===
+def key_hud_with_sequence_and_off(shape, start_time):
+    attr = hud_attr_path(shape)
+    if not cmds.objExists(attr):
+        print(f"[Warning] Missing attribute: {attr}")
+        return start_time
+
+    # Turn ON
+    cmds.setKeyframe(attr, value=0, t=start_time)
+    cmds.setKeyframe(attr, value=100, t=start_time + 10)
+
+    # Sequence
+    seq_end_time = key_sequence_eye_rolling(Sequence_EyeRolling, start_time + 10)
+
+    # Turn OFF
+    cmds.setKeyframe(attr, value=100, t=seq_end_time)
+    cmds.setKeyframe(attr, value=0, t=seq_end_time + 10)
+
+    return seq_end_time + 10
+
+# === RUN THE HUD ANIMATION WITH TIMELINE ADJUSTMENT ===
+def run_hud_animation():
+    create_hud_cube_and_blendshape()
+    start_frame = cmds.currentTime(q=True)
+
+    # Step 1: Key HUD shapes
+    end_of_hud_keys = key_hud_shapes(Hud_Shapes, start_frame)
+
+    # Step 2: Key eye rolling (standalone)
+    end_of_eye_roll = key_sequence_eye_rolling(Sequence_EyeRolling, end_of_hud_keys)
+
+    # Step 3: One-by-one HUD ON → sequence → OFF
+    current_time = end_of_eye_roll
+    for shape in Hud_Shapes:
+        current_time = key_hud_with_sequence_and_off(shape, current_time)
+
+    # Step 4: Adjust the timeline range
+    cmds.playbackOptions(minTime=start_frame, maxTime=current_time)
+    print(f"✅ Timeline adjusted to {start_frame} → {current_time}")
+
+# === CLEANUP DUPLICATE HUDS ===
+def cleanup_duplicate_huds():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    print("✅ Removed duplicate HUDs from block 7.")
+
+# === GET ACTIVE SHAPES FROM BLENDSHAPE ===
+def get_active_shapes_from_whitelist():
+    node = 'HUDkcm_blendShape'
+    if not cmds.objExists(node):
+        return ''
+
+    active_shapes = []
+    for shape in All_HUD_Shapes:
+        attr = f'{node}.{shape}'
+        if cmds.objExists(attr):
+            try:
+                value = cmds.getAttr(attr)
+                if value > 0.0:
+                    active_shapes.append(shape)
+            except:
+                continue
+
+    return ', '.join(sorted(set(active_shapes)))
+
+# === DISPLAY HUD INFO ===
+def show_filtered_hud_display():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        section=7,
+        block=7,
+        blockSize='medium',
+        dataFontSize='large',
+        dataAlignment='left',
+        command=get_active_shapes_from_whitelist,
+        attachToRefresh=True
+    )
+
+# === RUN EVERYTHING ===
+run_hud_animation()
+cleanup_duplicate_huds()
+show_filtered_hud_display()
