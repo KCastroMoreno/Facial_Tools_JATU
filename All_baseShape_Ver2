@@ -1,0 +1,416 @@
+import maya.cmds as cmds
+#FII good
+
+# Global config
+C_name = 'Face:'
+Ctrl_name = 'face_main_ctrl.'
+
+
+# HUD and animation shape names
+Ani_shapeNames = [
+    'JawOpen', 'JawOpenX', 'JawThrust', 'JawThrustX', 'JawSwing', 'JawSwingX',
+    'JawClenchBoth', 'JawDrop',
+    'SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher',
+    'LipCornerDepressor', 'LipTightenerUL', 'UpperLipRaiser', 'LowerLipDepressor',
+    'LipPuckererUL', 'LipFunnelerUL', 'LipPressorULX', 'LipPuffUL',
+    'LipSuckUL'
+]
+
+Hud_Shapes = [
+    'JawOpen', 'JawClosed', 'JawThrust', 'JawRetract', 'JawSwing', 'rJawSwing',
+    'JawClench', 'JawDrop',
+    'SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher',
+    'LipCornerDepressor', 'LipTightener', 'UpperLipRaiser', 'LowerLipDepressor',
+    'LipPuckerer', 'LipFunneler', 'LipPressor', 'LipPuff',
+    'LipSuck+JawOpen_10'
+]
+   
+
+
+
+# Animate face control attributes
+def animate_shape_keys(shape_list):
+    """Animate each shape group sequentially: 0→value→0."""
+    current_time =  int(cmds.textField('b8', q = 1, tx=1))
+
+    for name in shape_list:
+        # Determine key value
+        if name.endswith('X'):
+            newShape = name[:-1]
+            key_value = -100
+        else:
+            newShape = name
+            key_value = 100
+
+        # Get all final shapes for this name
+        UL_shapes = UL_check(newShape)
+        Final_shapes = L_R_Check(UL_shapes)
+
+        # Key the whole group at the same time
+        key_shape_group(Final_shapes, key_value, current_time)
+
+        # Move time forward AFTER the whole group is done
+        current_time += 10  # next group starts right after this one
+
+def key_shape_group(shape_list, key_value, start_frame):
+    """Key all shapes in the group at the same time."""
+    for shape in shape_list:
+        cmds.setAttr(shape, 0)
+        cmds.setKeyframe(shape, t=start_frame, v=0)
+
+    for shape in shape_list:
+        cmds.setAttr(shape, key_value)
+        cmds.setKeyframe(shape, t=start_frame + 5, v=key_value)
+
+    for shape in shape_list:
+        cmds.setAttr(shape, 0)
+        cmds.setKeyframe(shape, t=start_frame + 10, v=0)
+
+def reset_all_shapes(shape_list):
+    """Delete all keys and reset all shapes to 0."""
+    all_shapes = []
+
+    for name in shape_list:
+        UL_shapes = UL_check(name.replace('X',''))  # handle X shapes as base
+        Final_shapes = L_R_Check(UL_shapes)
+        all_shapes.extend(Final_shapes)
+
+    # Remove duplicates
+    all_shapes = list(set(all_shapes))
+
+    for shape in all_shapes:
+        if cmds.objExists(shape):
+            try:
+                cmds.cutKey(shape)  # delete all keyframes
+                cmds.setAttr(shape, 0)  # reset value to 0
+            except:
+                pass
+
+def UL_check(nameUL):
+    """Return list of shapes, converting UL → Lower+Upper"""
+    if nameUL.endswith('UL'):
+        base = nameUL[:-2]
+        NameUpper = base + 'Upper'
+        NameLower = base + 'Lower'
+        return [NameLower, NameUpper]
+    return [nameUL]
+
+def L_R_Check(nameLR_list):
+    """Return shapes with Face:face_main_ctrl. prefix.
+       If shape exists → return it
+       Else → return L/R variations
+    """
+    result_shapes = []
+    for shape in nameLR_list:
+        full_shape = C_name + Ctrl_name + shape
+
+        if cmds.objExists(full_shape):
+            result_shapes.append(full_shape)
+        else:
+            result_shapes.append(C_name + Ctrl_name + 'l' + shape)
+            result_shapes.append(C_name + Ctrl_name + 'r' + shape)
+
+    return result_shapes
+
+
+##############################################################################################    HUD SHAPES
+
+# === ATTRIBUTE PATH ===
+def hud_attr_path(attr_name):
+    return f'HUDkcm_blendShape.{attr_name}'
+
+# === CLEANUP: DELETE CUBE AND RESET HUD ===
+def cleanup_scene():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+    
+    # Remove HUD display
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    print("✅ Cleaned up cube and HUD.")
+
+# === CREATE HUD CUBE AND BLENDSHAPE ===
+def create_hud_cube_and_blendshape():
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+
+    targets = []
+    for shape in Hud_Shapes:
+        tgt = cmds.duplicate(base_cube, name=shape)[0]
+        targets.append(tgt)
+
+    blend_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+    print(f"✅ Created blendShape: {blend_node} on cube: {base_cube}")
+
+# === KEY HUD SHAPES ===
+def key_hud_shapes(shape_list, start_time):
+    current_time = int(cmds.textField('b8', q = 1, tx=1))
+
+    for shape in shape_list:
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print(f"[Warning] Missing attribute: {attr}")
+            continue
+
+        cmds.setKeyframe(attr, value=0, t=current_time)
+        cmds.setKeyframe(attr, value=100, t=current_time + 10)
+        cmds.setKeyframe(attr, value=0, t=current_time + 20)
+
+        current_time += 20
+
+    return current_time
+
+# === GET ACTIVE SHAPES FROM BLENDSHAPE ===
+def get_active_shapes_from_whitelist():
+    node = 'HUDkcm_blendShape'
+    if not cmds.objExists(node):
+        return ''
+
+    active_shapes = []
+    for shape in Hud_Shapes:
+        attr = f'{node}.{shape}'
+        if cmds.objExists(attr):
+            try:
+                value = cmds.getAttr(attr)
+                if value > 0.0:
+                    active_shapes.append(shape)
+            except:
+                continue
+
+    return ', '.join(sorted(set(active_shapes)))
+
+# === DISPLAY HUD INFO ===
+def show_filtered_hud_display():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        section=7,
+        block=7,
+        blockSize='medium',
+        dataFontSize='large',
+        dataAlignment='left',
+        command=get_active_shapes_from_whitelist,
+        attachToRefresh=True
+    )
+
+# === RUN EVERYTHING ===
+def run_hud_animation():
+    cleanup_scene()  # Clean up before starting
+    create_hud_cube_and_blendshape()
+    start_frame = int(cmds.textField('b8', q = 1, tx=1))
+
+    # Step 1: Key HUD shapes
+    end_of_hud_keys = key_hud_shapes(Hud_Shapes, start_frame)
+
+    # Step 2: Adjust the timeline range
+    cmds.playbackOptions(minTime=start_frame, maxTime=end_of_hud_keys)
+    print(f"✅ Timeline adjusted to {start_frame} → {end_of_hud_keys}")
+
+    # Show HUD during the animation
+    show_filtered_hud_display()
+
+
+
+# === Run ===
+
+def KeyShapes():
+    #animate_shape_keys(Ani_shapeNames)
+    run_hud_animation()
+    
+def DeleteKeyShapes():
+    cleanup_scene()
+    #reset_all_shapes(Ani_shapeNames) 
+
+######
+def Mesh_Duplicate():
+    List_name_dupli = cmds.ls(sl=1)
+    Duplicated_name = str(u", ".join(List_name_dupli))
+    if len(List_name_dupli) >= 2:
+        cmds.warning('Select only one object(A mesh or A group)')
+        
+    else:
+            
+        R_mesh= Duplicated_name+'_R'
+        L_mesh= Duplicated_name+'_L'
+        Selected_mesh = Duplicated_name
+        
+        cmds.duplicate(n = R_mesh)
+        cmds.move(-2.589, 0, 0.1, r=1)
+        cmds.rotate(0, 91, 0, r=1, os=1, fo=1)
+        cmds.select(Selected_mesh)
+        cmds.duplicate(n = L_mesh)
+        cmds.move(2.341, 0, 1.006, r=1)
+        cmds.rotate(0, -46.074, 0, r=1, os=1, fo=1)
+        
+        
+        print(Duplicated_name)
+        
+        Source_name_R=R_mesh
+        Source_name_L=L_mesh
+        Target_name=Selected_mesh
+                
+            
+        A_name = str(Source_name_R) + "_" + str(Target_name) + "_EG"
+        cmds.blendShape(Target_name,Source_name_R,n= A_name)
+        cmds.setAttr(A_name + '.' + str(Target_name), 1) #Local
+        
+        cmds.refresh()
+        
+        print(Source_name_L)
+        B_name = str(Source_name_L) + "_" + str(Target_name) + "_EG"
+        cmds.blendShape(Target_name,Source_name_L,n= B_name)
+        cmds.setAttr(B_name + '.' + str(Target_name), 1) #Local
+        
+        cmds.refresh()
+            
+
+
+############### CAMERA
+def Crete_Dailies_Cam():
+    List_name = cmds.ls(sl=1)
+    Getting_name = str(u", ".join(List_name))
+    
+    Cam_nam = "dailies_cam"
+    
+    if len(List_name) == 0:
+            cmds.warning('Select the main center face, for camera reference point')
+    
+    
+    else:
+        if cmds.objExists(Cam_nam):
+            cmds.delete(Cam_nam)
+        
+        elif cmds.objExists(Cam_nam + '_pointConstraint1'):
+            cmds.delete(Cam_nam + '_pointConstraint1')
+                  
+        temp_obj = 'temp_dailies_cam_mesh'
+        cmds.duplicate(Getting_name,n=temp_obj)
+        cmds.select(temp_obj)
+        cmds.CenterPivot()
+        
+        cmds.camera(n = Cam_nam,fl = 50)
+        cmds.rename(Cam_nam + '1',Cam_nam)
+        cmds.pointConstraint(temp_obj,Cam_nam)
+        cmds.setAttr( Cam_nam  + '.translateZ', 12 )
+        cmds.delete(Cam_nam + '_pointConstraint1')
+        cmds.delete(temp_obj)
+        cmds.lookThru(Cam_nam)
+        cmds.setAttr(Cam_nam + ".tx", lock=True)
+        cmds.setAttr(Cam_nam + ".ty", lock=True)
+        cmds.setAttr(Cam_nam + ".tz", lock=True)
+        cmds.setAttr(Cam_nam + ".rx", lock=True)
+        cmds.setAttr(Cam_nam + ".ry", lock=True)
+        cmds.setAttr(Cam_nam + ".rz", lock=True)
+        cmds.setAttr(Cam_nam + ".sx", lock=True)
+        cmds.setAttr(Cam_nam + ".sy", lock=True)
+        cmds.setAttr(Cam_nam + ".sz", lock=True)
+
+
+def Lock_Cam():
+    Cam_nam = "dailies_cam"
+    if cmds.objExists(Cam_nam):
+        cmds.setAttr(Cam_nam + ".tx", lock=True)
+        cmds.setAttr(Cam_nam + ".ty", lock=True)
+        cmds.setAttr(Cam_nam + ".tz", lock=True)
+        cmds.setAttr(Cam_nam + ".rx", lock=True)
+        cmds.setAttr(Cam_nam + ".ry", lock=True)
+        cmds.setAttr(Cam_nam + ".rz", lock=True)
+        cmds.setAttr(Cam_nam + ".sx", lock=True)
+        cmds.setAttr(Cam_nam + ".sy", lock=True)
+        cmds.setAttr(Cam_nam + ".sz", lock=True)
+    else:
+        cmds.warning("Dailies camera doesn't exist")
+        
+
+def Unlock_Cam():
+    Cam_nam = "dailies_cam"
+    if cmds.objExists(Cam_nam):
+        cmds.setAttr(Cam_nam + ".tx", lock=False)
+        cmds.setAttr(Cam_nam + ".ty", lock=False)
+        cmds.setAttr(Cam_nam + ".tz", lock=False)
+        cmds.setAttr(Cam_nam + ".rx", lock=False)
+        cmds.setAttr(Cam_nam + ".ry", lock=False)
+        cmds.setAttr(Cam_nam + ".rz", lock=False)
+        cmds.setAttr(Cam_nam + ".sx", lock=False)
+        cmds.setAttr(Cam_nam + ".sy", lock=False)
+        cmds.setAttr(Cam_nam + ".sz", lock=False)
+    else:
+        cmds.warning("Dailies camera doesn't exist")
+
+############## Rig Name
+
+
+
+
+###########    
+def Dailies_Face():
+    winName = 'Dailies_Face'
+    winTitle = 'Facial Dailies'
+    winWidth = 600
+    
+    if cmds.window(winName, exists=True):
+        cmds.deleteUI(winName)
+    cmds.window(winName,menuBar = True, title= winTitle, widthHeight=(300, 350))
+    cmds.formLayout('mainC',numberOfDivisions=100)
+    
+ 
+    cmds.button('b1',l= 'Mesh/Grp Duplicate 3',h= 30, c= 'Mesh_Duplicate()')
+    cmds.separator('b2',h= 5)
+    
+    cmds.button('b3',l= 'Create Camera' ,h= 30, c= 'Crete_Dailies_Cam()')
+    cmds.button('b4',l= 'Unlock Camera' ,h= 30, c= 'Unlock_Cam()')
+    cmds.button('b5',l= 'Lock Camera' ,h= 30, c= 'Lock_Cam()')
+    
+    cmds.separator('b6',h= 5)
+    
+    cmds.text('b7',l = 'Start Frame')
+    cmds.textField('b8',tx = "0", h = 22)
+    cmds.button('b9',l= 'Key Shapes' ,h= 30, c= 'KeyShapes()')
+    cmds.button('b10',l= 'Delete Keys Shapes' ,h= 30, c= 'DeleteKeyShapes()')
+
+    ###
+
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b1','left',5),('b1','top',5),('b1','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b2','left',5),('b2','top',40),('b2','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b3','left',5),('b3','top',50),('b3','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b4','left',5),('b4','top',90),('b5', 'top',90),('b5','right',5)])
+    cmds.formLayout('mainC', edit=True, attachPosition=[('b4', 'right',5, 50),('b5', 'right',5, 100)])
+    cmds.formLayout( 'mainC', edit=True, attachControl=[('b5', 'left',5, 'b4')]) 
+    #
+    cmds.formLayout('mainC', edit=True, attachForm=[('b6','left',5),('b6','top',125),('b6','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b7','left',5),('b7','top',135),('b8', 'top',135),('b8','right',5)])
+    cmds.formLayout('mainC', edit=True, attachPosition=[('b7', 'right',5, 50),('b8', 'right',5, 100)])
+    cmds.formLayout( 'mainC', edit=True, attachControl=[('b8', 'left',5, 'b7')])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b9','left',5),('b9','top',165),('b9','right',5)])
+    
+    cmds.formLayout('mainC', edit=True, attachForm=[('b10','left',5),('b10','top',200),('b10','right',5)])
+    #####
+
+
+
+
+      
+    cmds.showWindow()
+    cmds.window(winName, e=True, width=300, height=250)
+    
+
+Dailies_Face()
