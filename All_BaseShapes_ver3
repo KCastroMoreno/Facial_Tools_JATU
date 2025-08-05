@@ -22,7 +22,7 @@ Hud_Shapes = [
     'SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher',
     'LipCornerDepressor', 'LipTightener', 'UpperLipRaiser', 'LowerLipDepressor',
     'LipPuckerer', 'LipFunneler', 'LipPressor', 'LipPuff',
-    'LipSuck+JawOpen_10'
+    'LipSuck_JawOpen_10'
 ]
    
 
@@ -210,7 +210,7 @@ def show_filtered_hud_display():
 def run_hud_animation():
     cleanup_scene()  # Clean up before starting
     create_hud_cube_and_blendshape()
-    start_frame = cmds.currentTime(q=True)
+    start_frame = int(cmds.textField('b8', q = 1, tx=1))
 
     # Step 1: Key HUD shapes
     end_of_hud_keys = key_hud_shapes(Hud_Shapes, start_frame)
