@@ -1,0 +1,101 @@
+import maya.cmds as cmds
+
+C_name = 'Face:'
+Ctrl_name = 'face_main_ctrl.'
+
+Ani_shapeNames = [
+    'JawOpen', 'JawOpenX', 'JawThrust', 'JawThrustX', 'JawSwing', 'JawSwingX',
+    'JawClenchBoth', 'JawDrop',
+    'SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher',
+    'LipCornerDepressor', 'LipTightenerUL', 'UpperLipRaiser', 'LowerLipDepressor',
+    'LipPuckererUL', 'LipFunnelerUL', 'LipPressorULX', 'LipPuffUL',
+    'LipSuck'
+]
+
+def animate_shape_keys(shape_list):
+    """Animate each shape group sequentially: 0→value→0."""
+    current_time = 0
+
+    for name in shape_list:
+        # Determine key value
+        if name.endswith('X'):
+            newShape = name[:-1]
+            key_value = -100
+        else:
+            newShape = name
+            key_value = 100
+
+        # Get all final shapes for this name
+        UL_shapes = UL_check(newShape)
+        Final_shapes = L_R_Check(UL_shapes)
+
+        # Key the whole group at the same time
+        key_shape_group(Final_shapes, key_value, current_time)
+
+        # Move time forward AFTER the whole group is done
+        current_time += 10  # next group starts right after this one
+
+def key_shape_group(shape_list, key_value, start_frame):
+    """Key all shapes in the group at the same time."""
+    for shape in shape_list:
+        cmds.setAttr(shape, 0)
+        cmds.setKeyframe(shape, t=start_frame, v=0)
+
+    for shape in shape_list:
+        cmds.setAttr(shape, key_value)
+        cmds.setKeyframe(shape, t=start_frame + 5, v=key_value)
+
+    for shape in shape_list:
+        cmds.setAttr(shape, 0)
+        cmds.setKeyframe(shape, t=start_frame + 10, v=0)
+
+def reset_all_shapes(shape_list):
+    """Delete all keys and reset all shapes to 0."""
+    all_shapes = []
+
+    for name in shape_list:
+        UL_shapes = UL_check(name.replace('X',''))  # handle X shapes as base
+        Final_shapes = L_R_Check(UL_shapes)
+        all_shapes.extend(Final_shapes)
+
+    # Remove duplicates
+    all_shapes = list(set(all_shapes))
+
+    for shape in all_shapes:
+        if cmds.objExists(shape):
+            try:
+                cmds.cutKey(shape)  # delete all keyframes
+                cmds.setAttr(shape, 0)  # reset value to 0
+            except:
+                pass
+
+def UL_check(nameUL):
+    """Return list of shapes, converting UL → Lower+Upper"""
+    if nameUL.endswith('UL'):
+        base = nameUL[:-2]
+        NameUpper = base + 'Upper'
+        NameLower = base + 'Lower'
+        return [NameLower, NameUpper]
+    return [nameUL]
+
+def L_R_Check(nameLR_list):
+    """Return shapes with Face:face_main_ctrl. prefix.
+       If shape exists → return it
+       Else → return L/R variations
+    """
+    result_shapes = []
+    for shape in nameLR_list:
+        full_shape = C_name + Ctrl_name + shape
+
+        if cmds.objExists(full_shape):
+            result_shapes.append(full_shape)
+        else:
+            result_shapes.append(C_name + Ctrl_name + 'l' + shape)
+            result_shapes.append(C_name + Ctrl_name + 'r' + shape)
+
+    return result_shapes
+
+
+# Example usage:
+# reset_all_shapes(Ani_shapeNames)   # Clears all keys and sets to 0
+# animate_shape_keys(Ani_shapeNames) # Runs animation
