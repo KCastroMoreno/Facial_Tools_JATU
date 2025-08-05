@@ -1,0 +1,143 @@
+import maya.cmds as cmds
+
+# === SHAPE LISTS ===
+Hud_Shapes = ['JawOpen', 'JawClosed', 'JawThrust', 'JawRetract',
+    'lJawSwing', 'rJawSwing', 'lJawClench', 'rJawClench',
+    'SharpLipPuller', 'LipCornerPuller', 'LipStretcher', 'Dimpler',
+    'LipCornerDepressor', 'UpperLipRaiser', 'LowerLipDepressor',
+    'LipPuckererUpper', 'LipPuckererLower', 'LipSuckUpper',
+    'LipSuckLower', 'LipPressorUpper', 'LipPressorLower',
+    'BeakSide', 'BeakUp', 'BeakDown', 'CheekPuff', 'CheekSuck',
+    'CheekRaiser', 'NoseWrinkler', 'NostrilDilator',
+    'NostrilCompressor', 'NasolabialDeepener', 'InnerBrowRaiser',
+    'OuterBrowRaiser', 'BrowLowerer', 'Procerus',
+    'EyeClosed', 'LidTightenerUpper',
+    'LidTightenerLower', 'UpperLidRaiser', 'SquintUpper',
+    'SquintLower', 'EyeIn', 'EyeOut', 'EyeUp', 'EyeDown',
+    'PlatysmaInner', 'PlatysmaOuter', 'SwallowIn',
+    'SwallowOut', 'SwallowUp', 'SwallowDown',
+    'SternoCleidoMastoid', 'NeckInflateUpper',
+    'NeckInflateLower', 'NeckDeflateUpper',
+    'NeckDeflateLower', 'HeadUp', 'HeadDown',
+    'HeadLeft', 'HeadRight', 'HeadTwistLeft',
+    'HeadTwistRight', 'TongueUp', 'TongueDown',
+    'TongueRetract', 'TongueRoll', 'lTongueCurl',
+    'rTongueCurl', 'lTongueSide', 'rTongueSide']
+    
+    
+###################################################################### HUD SHAPES
+
+# === ATTRIBUTE PATH ===
+def hud_attr_path(attr_name):
+    return f'HUDkcm_blendShape.{attr_name}'
+
+# === CLEANUP: DELETE CUBE AND RESET HUD ===
+def cleanup_scene():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+    
+    # Remove HUD display
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    print("✅ Cleaned up cube and HUD.")
+
+# === CREATE HUD CUBE AND BLENDSHAPE ===
+def create_hud_cube_and_blendshape():
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+
+    targets = []
+    for shape in Hud_Shapes:
+        tgt = cmds.duplicate(base_cube, name=shape)[0]
+        targets.append(tgt)
+
+    blend_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+    print(f"✅ Created blendShape: {blend_node} on cube: {base_cube}")
+
+# === KEY HUD SHAPES ===
+def key_hud_shapes(shape_list, start_time):
+    current_time = start_time
+
+    for shape in shape_list:
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print(f"[Warning] Missing attribute: {attr}")
+            continue
+
+        cmds.setKeyframe(attr, value=0, t=current_time)
+        cmds.setKeyframe(attr, value=100, t=current_time + 10)
+        cmds.setKeyframe(attr, value=0, t=current_time + 20)
+
+        current_time += 20
+
+    return current_time
+
+# === GET ACTIVE SHAPES FROM BLENDSHAPE ===
+def get_active_shapes_from_whitelist():
+    node = 'HUDkcm_blendShape'
+    if not cmds.objExists(node):
+        return ''
+
+    active_shapes = []
+    for shape in Hud_Shapes:
+        attr = f'{node}.{shape}'
+        if cmds.objExists(attr):
+            try:
+                value = cmds.getAttr(attr)
+                if value > 0.0:
+                    active_shapes.append(shape)
+            except:
+                continue
+
+    return ', '.join(sorted(set(active_shapes)))
+
+# === DISPLAY HUD INFO ===
+def show_filtered_hud_display():
+    if cmds.headsUpDisplay('HUDShapeNames', exists=True):
+        cmds.headsUpDisplay('HUDShapeNames', remove=True)
+
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        section=7,
+        block=7,
+        blockSize='medium',
+        dataFontSize='large',
+        dataAlignment='left',
+        command=get_active_shapes_from_whitelist,
+        attachToRefresh=True
+    )
+
+# === RUN EVERYTHING ===
+def run_hud_animation():
+    cleanup_scene()  # Clean up before starting
+    create_hud_cube_and_blendshape()
+    start_frame = cmds.currentTime(q=True)
+
+    # Step 1: Key HUD shapes
+    end_of_hud_keys = key_hud_shapes(Hud_Shapes, start_frame)
+
+    # Step 2: Adjust the timeline range
+    cmds.playbackOptions(minTime=start_frame, maxTime=end_of_hud_keys)
+    print(f"✅ Timeline adjusted to {start_frame} → {end_of_hud_keys}")
+
+    # Show HUD during the animation
+    show_filtered_hud_display()
+
+
+
+
+
+
+run_hud_animation()
+#cleanup_scene()
