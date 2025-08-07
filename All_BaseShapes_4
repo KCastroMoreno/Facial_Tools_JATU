@@ -16,9 +16,9 @@ Ani_shapeNames = [
     'ChinRaiser', 'ChinRaiserUpperLip', 'BeakSide', 'CheekPuff', 'CheekSuckX',
     'CheekRaiser', 'NoseWrinkler', 'NostrilDilator', 'NostrilCompressor',
     'NasolabialDeepener', 'InnerBrowRaiser', 'OuterBrowRaiser', 'BrowLowerer',
-    'Procerus', 'EyeOpenClosed', 'EyeWide', 'LidTightenerUL', 'EyeOpenClosedX',
+    'Procerus', 'EyeOpenClosed', 'LidTightenerUL', 'EyeOpenClosedX',
     'SquintUL', 'EyeIn', 'EyeUp', 'EyeOut', 'EyeDown',
-    'PlatysmalInner', 'PlatysmaOuter', 'SwallowInOutX', 'SwallowInOut',
+    'PlatysmaInner', 'PlatysmaOuter', 'SwallowInOutX', 'SwallowInOut',
     'SwallowUpDown', 'SwallowUpDownX', 'SternoCleidoMastoid',
     'NeckInflateUpperLower', 'NeckInflateUpperLowerX',
     'NeckDeflateUpperLower', 'NeckDeflateUpperLowerX'
@@ -33,9 +33,9 @@ Hud_Shapes = [
     'ChinRaiser', 'ChinRaiserUpperLip', 'BeakSide', 'CheekPuff', 'CheekSuck',
     'CheekRaiser', 'NoseWrinkler', 'NostrilDilator', 'NostrilCompressor',
     'NasolabialDeepener', 'InnerBrowRaiser', 'OuterBrowRaiser', 'BrowLowerer',
-    'Procerus', 'EyeClosed', 'EyeWide', 'LidTightener', 'UpperLidRaiser',
+    'Procerus', 'EyeClosed', 'LidTightener', 'UpperLidRaiser',
     'Squint', 'EyeIn', 'EyeUp', 'EyeOut', 'EyeDown',
-    'PlatysmalInner', 'PlatysmaOuter', 'SwallowIn', 'SwallowOut',
+    'PlatysmaInner', 'PlatysmaOuter', 'SwallowIn', 'SwallowOut',
     'SwallowUp', 'SwallowDown', 'SternoCleidoMastoid',
     'NeckInflateUpper', 'NeckInflateLower',
     'NeckDeflateUpper', 'NeckDeflateLower'
