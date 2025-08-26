@@ -71,10 +71,10 @@ def key_hud_shapes(shape_list, start_time):
             continue
 
         cmds.setKeyframe(attr, value=0, t=current_time)
-        cmds.setKeyframe(attr, value=100, t=current_time + 10)
-        cmds.setKeyframe(attr, value=0, t=current_time + 20)
+        cmds.setKeyframe(attr, value=100, t=current_time + 5)
+        cmds.setKeyframe(attr, value=0, t=current_time + 10)
 
-        current_time += 20
+        current_time += 10
 
     return current_time
 
