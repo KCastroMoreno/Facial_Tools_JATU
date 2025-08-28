@@ -1,0 +1,153 @@
+import maya.cmds as cmds
+
+# === CONFIG ===
+FRAMES_PER_SHAPE = 100  # e.g. 0–99, 100–199, ...
+PEAK_AT_HALF = True     # keys a peak in the middle of each window
+
+# === SHAPE LISTS ===
+Hud_Shapes = [
+    'Funneler', 'Puckerer', 'InnerBrowRaiser', 'InnerBrowRaiser_BrowLowerer', 'BrowLowerer',
+    'SharpLipPuller', 'SharpLipPuller_LipCornerPuller', 'LipCornerPuller', 'NoseWrinkler',
+    'NoseWrinkler_UpperLipRaiser', 'UpperLipRaiser', 'LipCornerDepressor',
+    'LipCornerDepressor_LowerLipDepressor', 'LowerLipDepressor', 'LipCornerPuller',
+    'LipCornerPuller_LipStretcher', 'LipStretcher', 'LipCornerPuller',
+    'LipCornerPuller_LipStretcher', 'LipCornerPuller_LipStretcher_JawOpen',
+    'LipStretcher_JawOpen', 'JawOpen'
+]
+
+###################################################################### HUD SHAPES
+
+# === ATTRIBUTE PATH ===
+def hud_attr_path(attr_name):
+    return "HUDkcm_blendShape.{0}".format(attr_name)
+
+# === CLEANUP: DELETE CUBE AND RESET HUD ===
+def cleanup_scene():
+    if cmds.objExists('HUDkcm_cube'):
+        cmds.delete('HUDkcm_cube')
+    if cmds.objExists('HUDkcm_blendShape'):
+        cmds.delete('HUDkcm_blendShape')
+    for hud_id in ['HUDShapeNames', 'HUDScheduleNow']:
+        if cmds.headsUpDisplay(hud_id, exists=True):
+            cmds.headsUpDisplay(hud_id, remove=True)
+    try:
+        cmds.headsUpDisplay(block=7, rem=True)
+    except:
+        pass
+    print("✅ Cleaned up cube and HUD.")
+
+# === CREATE HUD CUBE AND BLENDSHAPE ===
+def create_hud_cube_and_blendshape():
+    base_cube = cmds.polyCube(name='HUDkcm_cube', width=1, height=1, depth=1)[0]
+
+    targets = []
+    for shape in Hud_Shapes:
+        tgt = cmds.duplicate(base_cube, name=shape)[0]
+        targets.append(tgt)
+
+    blend_node = cmds.blendShape(targets, base_cube, name='HUDkcm_blendShape')[0]
+    cmds.delete(targets)
+    print("✅ Created blendShape: {0} on cube: {1}".format(blend_node, base_cube))
+
+# === SCHEDULE HELPERS ===
+def build_shape_schedule(start_frame, frames_per_shape):
+    schedule = []
+    current = int(start_frame)
+    for shape in Hud_Shapes:
+        start = current
+        end = current + frames_per_shape - 1
+        schedule.append({'shape': shape, 'start': start, 'end': end})
+        current += frames_per_shape
+    return schedule
+
+def print_full_schedule(schedule):
+    print("🗓️ Full Shape Schedule:")
+    for i, item in enumerate(schedule):
+        print("{0:02d}. {1} {2}-{3}".format(i+1, item['shape'], item['start'], item['end']))
+
+def schedule_for_frame(schedule, frame):
+    f = int(frame)
+    for item in schedule:
+        if item['start'] <= f <= item['end']:
+            return item
+    return None
+
+# === KEY HUD SHAPES ===
+def key_hud_shapes(schedule):
+    for item in schedule:
+        shape = item['shape']
+        attr = hud_attr_path(shape)
+        if not cmds.objExists(attr):
+            print("[Warning] Missing attribute: {0}".format(attr))
+            continue
+
+        start = item['start']
+        end = item['end']
+        mid = start + (end - start) * 0.5
+
+        cmds.setKeyframe(attr, value=0.0, t=start)
+        if PEAK_AT_HALF:
+            cmds.setKeyframe(attr, value=1.0, t=mid)
+        else:
+            cmds.setKeyframe(attr, value=1.0, t=start + 1)
+        cmds.setKeyframe(attr, value=0.0, t=end)
+
+# === HUD: CURRENT SHAPE NAME ONLY ===
+def schedule_now_name_only():
+    node = 'HUDkcm_blendShape'
+    if not cmds.objExists(node):
+        return ''
+    if not cmds.objExists(node + ".schedStart") or not cmds.objExists(node + ".schedSpan"):
+        return ''
+    start_frame = cmds.getAttr(node + ".schedStart")
+    span = cmds.getAttr(node + ".schedSpan")
+    schedule = build_shape_schedule(start_frame, span)
+    cur = cmds.currentTime(q=True)
+    item = schedule_for_frame(schedule, cur)
+    if item:
+        return item['shape']
+    return ''
+
+def show_single_hud_name_only():
+    for hud_id in ['HUDShapeNames', 'HUDScheduleNow']:
+        if cmds.headsUpDisplay(hud_id, exists=True):
+            cmds.headsUpDisplay(hud_id, remove=True)
+    cmds.headsUpDisplay(
+        'HUDShapeNames',
+        section=7,
+        block=7,
+        blockSize='medium',
+        dataFontSize='large',
+        dataAlignment='left',
+        command=schedule_now_name_only,
+        attachToRefresh=True
+    )
+
+# === RUN EVERYTHING ===
+def run_hud_animation():
+    cleanup_scene()
+    create_hud_cube_and_blendshape()
+
+    start_frame = int(cmds.currentTime(q=True))
+    schedule = build_shape_schedule(start_frame, FRAMES_PER_SHAPE)
+    print_full_schedule(schedule)
+
+    key_hud_shapes(schedule)
+
+    node = 'HUDkcm_blendShape'
+    if cmds.objExists(node):
+        if not cmds.objExists(node + ".schedStart"):
+            cmds.addAttr(node, ln="schedStart", at="long")
+        if not cmds.objExists(node + ".schedSpan"):
+            cmds.addAttr(node, ln="schedSpan", at="long")
+        cmds.setAttr(node + ".schedStart", start_frame)
+        cmds.setAttr(node + ".schedSpan", FRAMES_PER_SHAPE)
+
+    end_of_keys = schedule[-1]['end']
+    cmds.playbackOptions(minTime=start_frame, maxTime=end_of_keys)
+    print("✅ Timeline adjusted to {0} → {1}".format(start_frame, end_of_keys))
+
+    show_single_hud_name_only()
+
+run_hud_animation()
+# cleanup_scene()
