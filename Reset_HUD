@@ -1,0 +1,19 @@
+# Maya Python 2.7 — Delete ALL HUDs
+import maya.cmds as cmds
+
+def clear_all_huds():
+    # List all HUDs in the scene
+    huds = cmds.headsUpDisplay(listHeadsUpDisplays=True)
+    if not huds:
+        print("No HUDs found.")
+        return
+    
+    for h in huds:
+        try:
+            cmds.headsUpDisplay(h, remove=True)
+            print("Removed HUD:", h)
+        except:
+            print("Could not remove HUD:", h)
+
+# Run it
+clear_all_huds()
