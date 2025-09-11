@@ -1,0 +1,54 @@
+# Maya Python 2.7 — Clear keys and reset shapes to 0
+import maya.cmds as cmds
+
+# ===== CONFIG (match your rig) =====
+C_NAME   = 'Face:'                 
+CTRL     = 'face_main_ctrl.'       
+SHAPES_5 = ['SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher', 'LipCornerDepressor']
+JAW      = 'JawOpen'
+
+def _attr(path_tail):
+    return C_NAME + CTRL + path_tail
+
+def _exists_center(name_):
+    return cmds.objExists(_attr(name_))
+
+def _resolve_channels(name_):
+    """Return full attr paths for this shape (center or l/r)."""
+    if _exists_center(name_):
+        return [_attr(name_)]
+    lr = []
+    if cmds.objExists(_attr('l' + name_)):
+        lr.append(_attr('l' + name_))
+    if cmds.objExists(_attr('r' + name_)):
+        lr.append(_attr('r' + name_))
+    if not lr:
+        lr = [_attr('l' + name_), _attr('r' + name_)]
+    return lr
+
+def _union_all_channels():
+    all_names = list(SHAPES_5) + [JAW]
+    seen, out = set(), []
+    for nm in all_names:
+        for ch in _resolve_channels(nm):
+            if ch not in seen:
+                seen.add(ch)
+                out.append(ch)
+    return out
+
+# ===== Clear & reset =====
+def clear_keys_and_reset():
+    channels = _union_all_channels()
+    for ch in channels:
+        try:
+            # delete keys
+            cmds.cutKey(ch, clear=True)
+            # reset to 0
+            cmds.setAttr(ch, 0)
+            print("Reset:", ch)
+        except:
+            print("⚠️ Could not reset:", ch)
+    print("✅ All keys cleared and shapes reset to 0.")
+
+# Run it:
+clear_keys_and_reset()
