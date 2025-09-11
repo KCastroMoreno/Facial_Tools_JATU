@@ -1,0 +1,110 @@
+# Maya Python 2.7 — Active Shapes HUD (vertical list, no header)
+import maya.cmds as cmds
+
+# === CONFIG (edit these to match your rig) ===
+C_NAME = 'Face:'              # Namespace prefix (keep trailing colon)
+CTRL_SHORT = 'face_main_ctrl' # Control short name
+CTRL_NODE = C_NAME + CTRL_SHORT
+
+HUD_PREFIX = 'HUDkcm_activeShapes'  # Base name for all HUD items
+PREFERRED_SECTION = 5               # Try this section first (1–9)
+MAX_LINES = 12                      # Max number of rows
+THRESHOLD = 1e-4                    # Ignore near-zero values
+_MAX_BLOCKS_PER_SECTION = 30        # Search space per section
+
+# ---------- helpers ----------
+def _to_comma_decimal(value):
+    s = '{0:.3f}'.format(value)
+    s = s.rstrip('0').rstrip('.')
+    if s == '-0':
+        s = '0'
+    return s.replace('.', ',')
+
+def _is_numeric_attr(node, attr):
+    try:
+        atype = cmds.getAttr(node + '.' + attr, type=True)
+        return atype in ('double', 'float', 'long', 'short', 'byte',
+                         'doubleAngle', 'doubleLinear')
+    except:
+        return False
+
+def _active_pairs():
+    if not cmds.objExists(CTRL_NODE):
+        return [('Missing node', CTRL_NODE)]
+    attrs = cmds.listAttr(CTRL_NODE, k=True) or []
+    pairs = []
+    for a in attrs:
+        if not _is_numeric_attr(CTRL_NODE, a):
+            continue
+        try:
+            v = cmds.getAttr(CTRL_NODE + '.' + a)
+            val = float(v)
+        except:
+            continue
+        if abs(val) > THRESHOLD:
+            pairs.append((a, val))
+    pairs.sort(key=lambda p: p[0].lower())
+    return pairs
+
+def _line_text(i):
+    pairs = _active_pairs()
+    if pairs and pairs[0][0] == 'Missing node':
+        return 'Missing node: {0}'.format(pairs[0][1])
+    if not pairs:
+        return 'Neutral' if i == 0 else ''
+    if i >= len(pairs):
+        return ''
+    name, val = pairs[i]
+    return '{0} : {1}'.format(name, _to_comma_decimal(val))
+
+def _remove_if_exists(name):
+    if cmds.headsUpDisplay(name, exists=True):
+        cmds.headsUpDisplay(name, remove=True)
+
+def _cleanup_all_known():
+    for i in range(MAX_LINES):
+        _remove_if_exists('{0}_line{1}'.format(HUD_PREFIX, i))
+
+def _try_place_group(section, start_block):
+    created = []
+    for i in range(MAX_LINES):
+        name = '{0}_line{1}'.format(HUD_PREFIX, i)
+        _remove_if_exists(name)
+        try:
+            cmds.headsUpDisplay(name,
+                                section=section,
+                                block=start_block + i,
+                                blockSize='medium',
+                                label='',
+                                labelFontSize='small',
+                                dataFontSize='large',
+                                command=(lambda i=i: _line_text(i)),
+                                attachToRefresh=True,
+                                allowOverlap=False)
+            created.append(name)
+        except RuntimeError:
+            for n in created:
+                _remove_if_exists(n)
+            return False
+    return True
+
+# ---------- Public API ----------
+def remove_hud():
+    _cleanup_all_known()
+
+def create_hud():
+    remove_hud()
+    sections = [PREFERRED_SECTION] + [s for s in range(1, 10) if s != PREFERRED_SECTION]
+    for sec in sections:
+        for base in range(0, _MAX_BLOCKS_PER_SECTION - MAX_LINES):
+            if _try_place_group(sec, base):
+                return True
+    cmds.warning('Active Shapes HUD: No free space found.')
+    return False
+
+def replace_hud():
+    remove_hud()
+    return create_hud()
+
+# --- Run this to replace old HUD with clean one ---
+replace_hud()
