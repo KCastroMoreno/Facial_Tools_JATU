@@ -1,0 +1,161 @@
+# -*- coding: utf-8 -*-
+import maya.cmds as cmds
+
+# ===== CONFIG =====
+C_NAME   = 'Face:'                 
+CTRL     = 'face_main_ctrl.'       
+SHAPES_5 = ['SharpLipPuller', 'LipCornerPuller', 'Dimpler', 'LipStretcher', 'LipCornerDepressor']
+JAW      = 'JawOpen'
+
+def _read_start_offset():
+    try:
+        return int(cmds.textField('b8', q=True, tx=True))
+    except:
+        return 0
+
+def _attr(path_tail):
+    return C_NAME + CTRL + path_tail
+
+def _exists_center(name_):
+    return cmds.objExists(_attr(name_))
+
+def _resolve_channels(name_):
+    if _exists_center(name_):
+        return [_attr(name_)]
+    lr = []
+    if cmds.objExists(_attr('l' + name_)):
+        lr.append(_attr('l' + name_))
+    if cmds.objExists(_attr('r' + name_)):
+        lr.append(_attr('r' + name_))
+    if not lr:
+        lr = [_attr('l' + name_), _attr('r' + name_)]
+    return lr
+
+def _union_all_channels():
+    all_names = list(SHAPES_5) + [JAW]
+    seen, out = set(), []
+    for nm in all_names:
+        for ch in _resolve_channels(nm):
+            if ch not in seen:
+                seen.add(ch)
+                out.append(ch)
+    return out
+
+def _key_zero(channels, t):
+    for ch in channels:
+        try:
+            cmds.setAttr(ch, 0)
+            cmds.setKeyframe(ch, t=t, v=0)
+        except:
+            pass
+
+def _key_value(channels, t, v):
+    for ch in channels:
+        try:
+            cmds.setAttr(ch, v)
+            cmds.setKeyframe(ch, t=t, v=v)
+        except:
+            pass
+
+def _parse_combo(label):
+    lab = label.strip()
+    if lab.lower() == 'neutral':
+        return []
+    parts = [p.strip() for p in lab.split('+')]
+    return [p for p in parts if p]
+
+# ===== Frame plan (every 10 instead of 5) =====
+FRAME_PLAN = [
+    (0,   'Neutral'),
+    (10,  'SharpLipPuller'),
+    (20,  'SharpLipPuller + ' + JAW),
+    (30,  JAW),
+    (40,  'Neutral'),
+
+    (50,  'LipCornerPuller'),
+    (60,  'LipCornerPuller + ' + JAW),
+    (70,  JAW),
+    (80,  'Neutral'),
+
+    (90,  'Dimpler'),
+    (100, 'Dimpler + ' + JAW),
+    (110, JAW),
+    (120, 'Neutral'),
+
+    (130, 'LipStretcher'),
+    (140, 'LipStretcher + ' + JAW),
+    (150, JAW),
+    (160, 'Neutral'),
+
+    (170, 'LipCornerDepressor'),
+    (180, 'LipCornerDepressor + ' + JAW),
+    (190, JAW),
+    (200, 'Neutral'),
+
+    (210, 'SharpLipPuller'),
+    (220, 'SharpLipPuller + LipCornerPuller'),
+    (230, 'LipCornerPuller'),
+    (240, 'LipCornerPuller + SharpLipPuller'),
+    (250, 'LipCornerPuller + SharpLipPuller + ' + JAW),
+    (260, JAW),
+    (270, 'Neutral'),
+
+    (280, 'LipCornerPuller'),
+    (290, 'LipCornerPuller + Dimpler'),
+    (300, 'Dimpler'),
+    (310, 'Dimpler + LipCornerPuller'),
+    (320, 'Dimpler + LipCornerPuller + ' + JAW),
+    (330, JAW),
+    (340, 'Neutral'),
+
+    (350, 'Dimpler'),
+    (360, 'Dimpler + LipStretcher'),
+    (370, 'LipStretcher'),
+    (380, 'LipStretcher + Dimpler'),
+    (390, 'LipStretcher + Dimpler + ' + JAW),
+    (400, JAW),
+    (410, 'Neutral'),
+
+    (420, 'LipStretcher'),
+    (430, 'LipStretcher + LipCornerDepressor'),
+    (440, 'LipCornerDepressor'),
+    (450, 'LipCornerDepressor + LipStretcher'),
+    (460, 'LipCornerDepressor + LipStretcher + ' + JAW),
+    (470, JAW),
+    (480, 'Neutral'),
+]
+
+# ===== Animator =====
+def key_from_frame_plan():
+    start_offset = _read_start_offset()
+    all_channels = _union_all_channels()
+
+    if FRAME_PLAN:
+        minf = FRAME_PLAN[0][0] + start_offset
+        maxf = FRAME_PLAN[-1][0] + start_offset
+        try:
+            cmds.playbackOptions(minTime=minf, maxTime=maxf)
+        except:
+            pass
+
+    for fr, label in FRAME_PLAN:
+        t = fr + start_offset
+        _key_zero(all_channels, t)
+        names = _parse_combo(label)
+        if names:
+            on_channels = []
+            for nm in names:
+                if nm == 'JawOpen':
+                    on_channels.extend(_resolve_channels(JAW))
+                else:
+                    on_channels.extend(_resolve_channels(nm))
+            seen = set()
+            on_channels = [c for c in on_channels if (c not in seen and not seen.add(c))]
+            _key_value(on_channels, t, 100)
+
+    print("✅ Keyed from table (10-frame spacing). Frames: {0} → {1}".format(
+        FRAME_PLAN[0][0] + start_offset, FRAME_PLAN[-1][0] + start_offset))
+
+def KeyShapes_FromTable():
+    key_from_frame_plan()
+KeyShapes_FromTable()
