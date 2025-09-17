@@ -1,0 +1,72 @@
+# Maya Python 2.7 — Clear keys and reset eye shapes to 0
+import maya.cmds as cmds
+
+# ===== CONFIG (match your rig) =====
+C_NAME   = 'Face:'                 
+CTRL     = 'face_main_ctrl.'       
+
+# Tokens used (pre-expansion). UL/X rules expand these at runtime.
+EYE_SHAPES = [
+    'EyeIn','EyeUp','EyeOut','EyeDown',
+    'EyeOpenClosed','EyeOpenClosedX','UpperLidRaiserX','LidTightenerUL','SquintUL'
+]
+
+def _attr(path_tail):
+    return C_NAME + CTRL + path_tail
+
+def _exists(name_tail):
+    return cmds.objExists(_attr(name_tail))
+
+def _resolve_lr_or_center(base_name):
+    """Resolve attr names to l/r if they exist, else center, else fallback."""
+    out = []
+    lnm, rnm = 'l' + base_name, 'r' + base_name
+    if _exists(lnm):
+        out.append(_attr(lnm))
+    if _exists(rnm):
+        out.append(_attr(rnm))
+    if out:
+        return out
+    if _exists(base_name):
+        return [_attr(base_name)]
+    return [_attr(lnm), _attr(rnm)]  # harmless fallback
+
+# ===== Expand rules (same as animation script) =====
+def _expand_token(token):
+    t = token.strip()
+    if not t or t.lower() == 'neutral':
+        return []
+    if t.endswith('X'):
+        base = t[:-1]
+        return [(base, 0)]  # value doesn’t matter here (we just want base name)
+    if t.endswith('UL'):
+        base = t[:-2]
+        return [(base + 'Upper', 0), (base + 'Lower', 0)]
+    return [(t, 0)]
+
+def _union_all_channels():
+    """Collect all channel paths for all shapes (UL/X expanded)."""
+    seen, out = set(), []
+    for nm in EYE_SHAPES:
+        pairs = _expand_token(nm) or [(nm, 0)]
+        for base, _ in pairs:
+            for ch in _resolve_lr_or_center(base):
+                if ch not in seen:
+                    seen.add(ch)
+                    out.append(ch)
+    return out
+
+# ===== Clear & reset =====
+def clear_keys_and_reset_eyes():
+    channels = _union_all_channels()
+    for ch in channels:
+        try:
+            cmds.cutKey(ch, clear=True)   # delete keys
+            cmds.setAttr(ch, 0)          # reset to 0
+            print("Reset:", ch)
+        except:
+            print("⚠️ Could not reset:", ch)
+    print("✅ All eye shape keys cleared and reset to 0.")
+
+# Run it:
+clear_keys_and_reset_eyes()
