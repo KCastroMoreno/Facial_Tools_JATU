@@ -1,0 +1,236 @@
+# -*- coding: utf-8 -*-
+import maya.cmds as cmds
+
+# ===== CONFIG =====
+C_NAME   = 'Face:'                  # 'Face:' or '' if no namespace
+CTRL     = 'face_main_ctrl.'        # prefix before channel names
+ACTIVE_VALUE = 100                  # set to 1.0 if your rig is [0..1]
+
+# Tokens used in your table (pre-expansion). UL/X rules expand these at runtime.
+EYE_SHAPES = [
+    'EyeIn','EyeUp','EyeOut','EyeDown',
+    'EyeOpenClosed','EyeOpenClosedX','UpperLidRaiserX','LidTightenerUL','SquintUL'
+]
+
+# ===== Offset UI (same behavior as before) =====
+def _read_start_offset():
+    try:
+        return int(cmds.textField('b8', q=True, tx=True))
+    except:
+        return 0
+
+def _attr(path_tail):
+    return C_NAME + CTRL + path_tail
+
+def _exists(name_tail):
+    return cmds.objExists(_attr(name_tail))
+
+def _resolve_lr_or_center(base_name):
+    """
+    Prefer l/r channels if they exist; else center if present; else return l/r fallbacks.
+    """
+    out = []
+    lnm, rnm = 'l' + base_name, 'r' + base_name
+    if _exists(lnm):
+        out.append(_attr(lnm))
+    if _exists(rnm):
+        out.append(_attr(rnm))
+    if out:
+        return out
+    if _exists(base_name):
+        return [_attr(base_name)]
+    return [_attr(lnm), _attr(rnm)]  # harmless if missing
+
+# ----- Rules: UL / X expansion -----
+def _expand_token(token):
+    """
+    Return list of (base_name, value) pairs BEFORE l/r resolution.
+
+    Rules:
+      - 'NameX'  -> [('Name', -ACTIVE_VALUE)]    # e.g., 'UpperLidRaiserX' -> ('UpperLidRaiser', -100)
+      - 'NameUL' -> [('NameUpper', +ACTIVE_VALUE), ('NameLower', +ACTIVE_VALUE)]
+      - 'Neutral' or '' -> []
+      - default  -> [('Name', +ACTIVE_VALUE)]
+    """
+    t = token.strip()
+    if not t or t.lower() == 'neutral':
+        return []
+    if t.endswith('X'):
+        base = t[:-1]
+        return [(base, -ACTIVE_VALUE)]
+    if t.endswith('UL'):
+        base = t[:-2]
+        return [(base + 'Upper', ACTIVE_VALUE), (base + 'Lower', ACTIVE_VALUE)]
+    return [(t, ACTIVE_VALUE)]
+
+def _union_all_channels():
+    """
+    Build the set of channels to zero each frame by expanding UL/X across EYE_SHAPES.
+    """
+    seen, out = set(), []
+    for nm in EYE_SHAPES:
+        pairs = _expand_token(nm) or [(nm, ACTIVE_VALUE)]
+        for base, _v in pairs:
+            for ch in _resolve_lr_or_center(base):
+                if ch not in seen:
+                    seen.add(ch)
+                    out.append(ch)
+    return out
+
+# ----- Key helpers -----
+def _key_zero(channels, t):
+    for ch in channels:
+        try:
+            cmds.setAttr(ch, 0)
+            cmds.setKeyframe(ch, t=t, v=0)
+        except:
+            pass
+
+def _key_values_dict(value_by_channel, t):
+    for ch, val in value_by_channel.items():
+        try:
+            cmds.setAttr(ch, val)
+            cmds.setKeyframe(ch, t=t, v=val)
+        except:
+            pass
+
+def _parse_combo(label):
+    lab = label.strip()
+    if not lab or lab.lower() == 'neutral':
+        return []
+    return [p.strip() for p in lab.split('+') if p.strip()]
+
+# ===== FRAME PLAN (every 10f) — exactly as requested =====
+FRAME_PLAN = [
+    # 0–60
+    (  0, 'Neutral'),
+    ( 10, 'EyeIn'),
+    ( 20, 'EyeUp'),
+    ( 30, 'EyeOut'),
+    ( 40, 'EyeDown'),
+    ( 50, 'EyeIn'),
+    ( 60, 'Neutral'),
+
+    # 70–130 (EyeOpenClosed)
+    ( 70, 'EyeOpenClosed'),
+    ( 80, 'EyeIn+EyeOpenClosed'),
+    ( 90, 'EyeUp+EyeOpenClosed'),
+    (100, 'EyeOut+EyeOpenClosed'),
+    (110, 'EyeDown+EyeOpenClosed'),
+    (120, 'EyeIn+EyeOpenClosed'),
+    (130, 'EyeOpenClosed'),
+
+    # 140–220 (EyeOpenClosedX -> negative EyeOpenClosed)
+    (140, 'Neutral'),
+    (150, 'EyeOpenClosedX'),
+    (160, 'EyeIn+EyeOpenClosedX'),
+    (170, 'EyeUp+EyeOpenClosedX'),
+    (180, 'EyeOut+EyeOpenClosedX'),
+    (190, 'EyeDown+EyeOpenClosedX'),
+    (200, 'EyeIn+EyeOpenClosedX'),
+    (210, 'EyeOpenClosedX'),
+    (220, 'Neutral'),
+
+    # 230–310 (UpperLidRaiserX -> negative UpperLidRaiser)
+    (230, 'Neutral'),
+    (240, 'UpperLidRaiserX'),
+    (250, 'EyeIn+UpperLidRaiserX'),
+    (260, 'EyeUp+UpperLidRaiserX'),
+    (270, 'EyeOut+UpperLidRaiserX'),
+    (280, 'EyeDown+UpperLidRaiserX'),
+    (290, 'EyeIn+UpperLidRaiserX'),
+    (300, 'UpperLidRaiserX'),
+    (310, 'Neutral'),
+
+    # 320–390 (LidTightenerUL -> Upper+Lower)
+    (320, 'LidTightenerUL'),
+    (330, 'EyeIn+LidTightenerUL'),
+    (340, 'EyeUp+LidTightenerUL'),
+    (350, 'EyeOut+LidTightenerUL'),
+    (360, 'EyeDown+LidTightenerUL'),
+    (370, 'EyeIn+LidTightenerUL'),
+    (380, 'LidTightenerUL'),
+    (390, 'Neutral'),
+
+    # 400–470 (SquintUL -> Upper+Lower)
+    (400, 'SquintUL'),
+    (410, 'EyeIn+SquintUL'),
+    (420, 'EyeUp+SquintUL'),
+    (430, 'EyeOut+SquintUL'),
+    (440, 'EyeDown+SquintUL'),
+    (450, 'EyeIn+SquintUL'),
+    (460, 'SquintUL'),
+    (470, 'Neutral'),
+
+    # 480–570 (EyeOpenClosed + LidTightenerUL)
+    (480, 'EyeOpenClosed'),
+    (490, 'EyeOpenClosed+LidTightenerUL'),
+    (500, 'EyeIn+EyeOpenClosed+LidTightenerUL'),
+    (510, 'EyeUp+EyeOpenClosed+LidTightenerUL'),
+    (520, 'EyeOut+EyeOpenClosed+LidTightenerUL'),
+    (530, 'EyeDown+EyeOpenClosed+LidTightenerUL'),
+    (540, 'EyeIn+EyeOpenClosed+LidTightenerUL'),
+    (550, 'EyeOpenClosed+LidTightenerUL'),
+    (560, 'LidTightenerUL'),
+    (570, 'Neutral'),
+
+    # 580–670 (EyeOpenClosed + SquintUL)
+    (580, 'EyeOpenClosed'),
+    (590, 'EyeOpenClosed+SquintUL'),
+    (600, 'EyeIn+EyeOpenClosed+SquintUL'),
+    (610, 'EyeUp+EyeOpenClosed+SquintUL'),
+    (620, 'EyeOut+EyeOpenClosed+SquintUL'),
+    (630, 'EyeDown+EyeOpenClosed+SquintUL'),
+    (640, 'EyeIn+EyeOpenClosed+SquintUL'),
+    (650, 'EyeOpenClosed+SquintUL'),
+    (660, 'SquintUL'),
+    (670, 'Neutral'),
+
+    # 680–770 (LidTightenerUL + SquintUL)
+    (680, 'LidTightenerUL'),
+    (690, 'LidTightenerUL+SquintUL'),
+    (700, 'EyeIn+LidTightenerUL+SquintUL'),
+    (710, 'EyeUp+LidTightenerUL+SquintUL'),
+    (720, 'EyeOut+LidTightenerUL+SquintUL'),
+    (730, 'EyeDown+LidTightenerUL+SquintUL'),
+    (740, 'EyeIn+LidTightenerUL+SquintUL'),
+    (750, 'LidTightenerUL+SquintUL'),
+    (760, 'SquintUL'),
+    (770, 'Neutral'),
+]
+
+# ===== Animator =====
+def key_from_frame_plan():
+    start_offset = _read_start_offset()
+    all_channels = _union_all_channels()
+
+    if FRAME_PLAN:
+        minf = FRAME_PLAN[0][0] + start_offset
+        maxf = FRAME_PLAN[-1][0] + start_offset
+        try:
+            cmds.playbackOptions(minTime=minf, maxTime=maxf)
+        except:
+            pass
+
+    for fr, label in FRAME_PLAN:
+        t = fr + start_offset
+        _key_zero(all_channels, t)
+
+        tokens = _parse_combo(label)
+        value_by_channel = {}
+        for tok in tokens:
+            for base_name, val in _expand_token(tok):
+                for ch in _resolve_lr_or_center(base_name):
+                    value_by_channel[ch] = val  # last write wins
+
+        if value_by_channel:
+            _key_values_dict(value_by_channel, t)
+
+    print("✅ Keyed from table (10f). Frames: %d → %d (offset %d)" % (
+        FRAME_PLAN[0][0] + start_offset, FRAME_PLAN[-1][0] + start_offset, start_offset))
+
+def Key_EyeShapes_FromTable():
+    key_from_frame_plan()
+
+# Run:
+Key_EyeShapes_FromTable()
