@@ -1,0 +1,274 @@
+import maya.cmds as cmds
+
+CTRL = "Face:face_main_ctrl"
+MESH = "Face:face_msh"
+
+def _attr(shape_name):
+    return CTRL + "." + shape_name
+
+def _exists_attr(attr_path):
+    return cmds.objExists(attr_path)
+
+def _set(attr_path, value):
+    if not _exists_attr(attr_path):
+        raise RuntimeError("Missing attribute: {0}".format(attr_path))
+    if not cmds.getAttr(attr_path, settable=True):
+        raise RuntimeError("Attribute not settable: {0}".format(attr_path))
+    cmds.setAttr(attr_path, value)
+
+def _zero_attrs(attr_paths):
+    for a in attr_paths:
+        if _exists_attr(a):
+            try:
+                cmds.setAttr(a, 0)
+            except:
+                pass
+
+def _ensure_group(name):
+    if cmds.objExists(name):
+        return name
+    return cmds.group(em=True, name=name)
+
+def _force_eval():
+    cmds.dgdirty(allPlugs=True)
+    cmds.refresh()
+
+def _is_eyeclosed_token(s):
+    # You can type "EyeClosed", "eyeclosed", "EYE_CLOSED", etc.
+    if not s:
+        return False
+    return s.replace("_", "").lower() == "eyeclosed"
+
+def _build_side_items_for_naming(side_prefix, shapes_with_tokens, eyeclosed_token_case="EyeClosed"):
+    """
+    Convert user list (with tokens) into a per-side naming list.
+    Example input: ["SquintUpper","EyeClosed","EyeDown"]
+    Output left:  ["lSquintUpper","lEyeClosed","lEyeDown"]
+    Output right: ["rSquintUpper","rEyeClosed","rEyeDown"]
+    """
+    out = []
+    for item in shapes_with_tokens:
+        if _is_eyeclosed_token(item):
+            out.append(side_prefix + eyeclosed_token_case)  # e.g. lEyeClosed
+        else:
+            out.append(side_prefix + item)  # e.g. lSquintUpper
+    return out
+
+def _build_side_shapes_to_drive(side_prefix, shapes_with_tokens):
+    """
+    Same input list, but REMOVE the EyeClosed token for driving.
+    Example: ["SquintUpper","EyeClosed","EyeDown"] -> ["lSquintUpper","lEyeDown"]
+    """
+    out = []
+    for item in shapes_with_tokens:
+        if _is_eyeclosed_token(item):
+            continue
+        out.append(side_prefix + item)
+    return out
+
+def duplicate_eyeopenclosed_series_with_order(
+    shapes_with_tokens,
+    eye_values=(80, 65, 40),
+    eye_driver="EyeOpenClosed",          # rig attribute to set
+    eyeclosed_token_case="EyeClosed",    # how token appears in names: EyeClosed / eyeClosed etc.
+    top_group="EYE_OPENCLOSED_DUP_GRP",
+    mesh=MESH
+):
+    """
+    shapes_with_tokens example:
+        ["SquintUpper","EyeClosed","EyeDown"]
+
+    - Any "EyeClosed" item is NOT driven.
+    - It only affects the duplicate naming order.
+    - The actual rig driver remains EyeOpenClosed.
+    """
+
+    if not cmds.objExists(mesh):
+        raise RuntimeError("Mesh not found: {0}".format(mesh))
+
+    top_grp = _ensure_group(top_group)
+
+    # Build per-side naming order (includes EyeClosed token)
+    l_name_items = _build_side_items_for_naming("l", shapes_with_tokens, eyeclosed_token_case)
+    r_name_items = _build_side_items_for_naming("r", shapes_with_tokens, eyeclosed_token_case)
+
+    # Build per-side driven shapes (excludes EyeClosed token)
+    l_drive_shapes = _build_side_shapes_to_drive("l", shapes_with_tokens)
+    r_drive_shapes = _build_side_shapes_to_drive("r", shapes_with_tokens)
+
+    l_eye_driver = "l" + eye_driver
+    r_eye_driver = "r" + eye_driver
+
+    # Involved attrs (for reset)
+    involved = [_attr(x) for x in (l_drive_shapes + r_drive_shapes + [l_eye_driver, r_eye_driver])]
+
+    created = []
+
+    # ---------- LEFT FIRST ----------
+    _zero_attrs(involved)
+
+    # Drive left base shapes to 100
+    for s in l_drive_shapes:
+        _set(_attr(s), 100)
+
+    # Folder/group name should NOT include the EyeClosed token, since it's not a real attr
+    left_grp = _ensure_group("L__" + "_".join(l_drive_shapes))
+    cmds.parent(left_grp, top_grp)
+
+    for v in eye_values:
+        v = max(0, min(100, int(v)))
+
+        # Still drive EyeOpenClosed
+        _set(_attr(l_eye_driver), v)
+        _set(_attr(r_eye_driver), 0)
+
+        _force_eval()
+
+        # Build name by inserting the EyeClosed token exactly where you placed it
+        # Example: lSquintUpper_lEyeClosed_80_lEyeDown
+        name_parts = []
+        inserted_value = False
+
+        for item in l_name_items:
+            if _is_eyeclosed_token(item[1:]):  # strip 'l' and check token
+                name_parts.append(item)        # lEyeClosed
+                name_parts.append(str(v))      # 80
+                inserted_value = True
+            else:
+                name_parts.append(item)
+
+        # If user forgot to include EyeClosed token, default to prefixing like before
+        if not inserted_value:
+            name_parts = ["l" + eyeclosed_token_case, str(v)] + l_name_items
+
+        dup_name = "_".join(name_parts)
+
+        dup = cmds.duplicate(mesh, rr=True, name=dup_name)[0]
+        cmds.parent(dup, left_grp)
+        created.append(dup)
+
+    # ---------- RIGHT ----------
+    _zero_attrs(involved)
+
+    for s in r_drive_shapes:
+        _set(_attr(s), 100)
+
+    right_grp = _ensure_group("R__" + "_".join(r_drive_shapes))
+    cmds.parent(right_grp, top_grp)
+
+    for v in eye_values:
+        v = max(0, min(100, int(v)))
+
+        _set(_attr(r_eye_driver), v)
+        _set(_attr(l_eye_driver), 0)
+
+        _force_eval()
+
+        # Example: rSquintUpper_rEyeClosed_80_rEyeDown
+        name_parts = []
+        inserted_value = False
+
+        for item in r_name_items:
+            if _is_eyeclosed_token(item[1:]):
+                name_parts.append(item)
+                name_parts.append(str(v))
+                inserted_value = True
+            else:
+                name_parts.append(item)
+
+        if not inserted_value:
+            name_parts = ["r" + eyeclosed_token_case, str(v)] + r_name_items
+
+        dup_name = "_".join(name_parts)
+
+        dup = cmds.duplicate(mesh, rr=True, name=dup_name)[0]
+        cmds.parent(dup, right_grp)
+        created.append(dup)
+
+    cmds.select(created, r=True)
+    return created
+
+
+# -------- EXAMPLE ----------
+# You control naming order by where you place "EyeClosed" in this list:
+
+def reset_face_controls():
+    """
+    Sets all listed face controls (L/R) to 0
+    """
+    ctrl = "Face:face_main_ctrl"
+
+    attributes = [
+        "EyeOpenClosed",
+        "LidTightenerUpper",
+        "LidTightenerLower",
+        "SquintUpper",
+        "SquintLower",
+        "EyeDown",
+        "EyeIn",
+        "CheekRaiser",
+    ]
+
+    for attr in attributes:
+        for side in ["l", "r"]:
+            full_attr = "{}.{}{}".format(ctrl, side, attr)
+            if cmds.objExists(full_attr):
+                cmds.setAttr(full_attr, 0)
+            else:
+                print("Missing: {}".format(full_attr))
+
+
+# ---------------------------------------
+# Shape batches to process (ORDER MATTERS)
+# ---------------------------------------
+SHAPES_BATCHES = [
+    ["EyeClosed", "EyeIn", "LidTightenerLower", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+    ["EyeClosed", "EyeDown", "LidTightenerLower", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "LidTightenerLower", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+
+    ["EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "LidTightenerUpper", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeIn", "LidTightenerLower", "LidTightenerUpper", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "LidTightenerLower", "LidTightenerUpper", "SquintUpper"],
+
+    ["EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "LidTightenerUpper", "SquintLower"],
+    ["CheekRaiser", "EyeClosed", "EyeIn", "LidTightenerLower", "LidTightenerUpper", "SquintLower"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "LidTightenerLower", "LidTightenerUpper", "SquintLower"],
+
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "LidTightenerUpper"],
+
+    ["EyeClosed", "EyeDown", "EyeIn", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeIn", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "LidTightenerUpper", "SquintLower", "SquintUpper"],
+
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "LidTightenerUpper", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "LidTightenerUpper", "SquintLower"],
+
+    ["EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "SquintLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeIn", "LidTightenerLower", "SquintLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "LidTightenerLower", "SquintLower", "SquintUpper"],
+
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "SquintUpper"],
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "LidTightenerLower", "SquintLower"],
+
+    ["CheekRaiser", "EyeClosed", "EyeDown", "EyeIn", "SquintLower", "SquintUpper"],
+]
+
+
+def run_all_eyeopenclosed_variations():
+    """
+    Iterates through all SHAPES batches
+    and calls duplicate_eyeopenclosed_series_with_order()
+    """
+
+    for index, SHAPES in enumerate(SHAPES_BATCHES, start=1):
+        print("\n--- Running batch {} ---".format(index))
+        print("SHAPES: {}".format(SHAPES))
+        reset_face_controls()
+        duplicate_eyeopenclosed_series_with_order(SHAPES)
+
+
+# ---------------------------------------
+# Run everything
+# ---------------------------------------
+
+run_all_eyeopenclosed_variations()
