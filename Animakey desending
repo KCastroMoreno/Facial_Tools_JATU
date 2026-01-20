@@ -1,0 +1,132 @@
+import maya.cmds as cmds
+
+CTRL = "Face:face_main_ctrl"
+
+# ---------------------------------------
+# Each group is a SEQUENCE (ORDER MATTERS)
+# EyeClosed token drives EyeOpenClosed
+# ---------------------------------------
+SHAPES_BATCHES = [
+    ["EyeClosed", "LidTightenerUpper", "LidTightenerLower", "SquintUpper", "SquintLower", "EyeIn", "EyeDown", "CheekRaiser"],
+    # Add more groups if you want:
+    # ["CheekRaiser", "EyeClosed", "EyeDown", "LidTightenerLower", "LidTightenerUpper", "SquintUpper"],
+]
+
+START_FRAME = 0
+STEP = 10
+ON_VALUE = 100
+OFF_VALUE = 0
+
+TOKEN_MAP = {
+    "EyeClosed": "EyeOpenClosed"
+}
+
+def _attr_path(ctrl, side, shape_token):
+    real_shape = TOKEN_MAP.get(shape_token, shape_token)
+    return "{}.{}{}".format(ctrl, side, real_shape)
+
+def _key(attr_path, frame, value):
+    cmds.setKeyframe(attr_path, time=frame, value=value)
+
+def _key_lr(shape_token, frame, value):
+    """
+    Key both L/R for a given token (EyeClosed -> EyeOpenClosed).
+    """
+    missing = []
+    for side in ("l", "r"):
+        a = _attr_path(CTRL, side, shape_token)
+        if not cmds.objExists(a):
+            missing.append(a)
+            continue
+        try:
+            _key(a, frame, value)
+        except:
+            missing.append(a)
+    return missing
+
+def _ramp_on_sequence(shapes_group, start_frame):
+    """
+    Ramp ON forward, one-by-one:
+      shape i: 0 @ (start + i*STEP)  -> 100 @ (start + (i+1)*STEP)
+    Also ensures the shape stays at 100 after it turns on (because later keys won't change it).
+    """
+    missing = []
+    for i, token in enumerate(shapes_group):
+        f0 = start_frame + i * STEP
+        f1 = start_frame + (i + 1) * STEP
+
+        missing += _key_lr(token, f0, OFF_VALUE)
+        missing += _key_lr(token, f1, ON_VALUE)
+
+    end_frame = start_frame + len(shapes_group) * STEP
+    return end_frame, missing
+
+def _ramp_off_sequence(shapes_group, start_frame, off_order="same_as_on"):
+    """
+    Ramp OFF one-by-one starting at start_frame.
+
+    Your requested example:
+      EyeClosed: 100@80 -> 0@90
+      LidTightenerUpper: 100@90 -> 0@100
+      ...
+
+    That is OFF in the SAME order as ON (EyeClosed first).
+    If you ever want true reverse (CheekRaiser first), set off_order="reverse".
+    """
+    missing = []
+    if off_order == "reverse":
+        order = list(reversed(shapes_group))
+    else:
+        order = list(shapes_group)
+
+    for j, token in enumerate(order):
+        f0 = start_frame + j * STEP
+        f1 = start_frame + (j + 1) * STEP
+
+        missing += _key_lr(token, f0, ON_VALUE)
+        missing += _key_lr(token, f1, OFF_VALUE)
+
+    end_frame = start_frame + len(order) * STEP
+    return end_frame, missing
+
+def run_batches():
+    if not cmds.objExists(CTRL):
+        raise RuntimeError("CTRL not found: {}".format(CTRL))
+
+    current_start = int(START_FRAME)
+    all_missing = []
+
+    for batch_index, group in enumerate(SHAPES_BATCHES, start=1):
+        print("\n--- Batch {} ---".format(batch_index))
+        print("Group:", group)
+
+        # ON pass
+        on_end, miss_on = _ramp_on_sequence(group, current_start)
+        all_missing += miss_on
+        print("ON ends at frame:", on_end)
+
+        # OFF pass (starts where ON ended)
+        off_end, miss_off = _ramp_off_sequence(group, on_end, off_order="same_as_on")
+        all_missing += miss_off
+        print("OFF ends at frame:", off_end)
+
+        # Next batch starts after this one completes
+        current_start = off_end
+
+    # Playback range
+    try:
+        cmds.playbackOptions(min=START_FRAME, max=current_start)
+    except:
+        pass
+
+    cmds.currentTime(START_FRAME, edit=True)
+
+    uniq_missing = sorted(list(set(all_missing)))
+    if uniq_missing:
+        print("\nMissing / not keyable attributes:")
+        for a in uniq_missing:
+            print("  - {}".format(a))
+
+    print("\nDone ✅ End frame:", current_start)
+
+run_batches()
