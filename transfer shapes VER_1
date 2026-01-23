@@ -1,0 +1,165 @@
+# Maya Python (works in modern Maya; if you're on Maya 2020+ you're good)
+# Usage:
+# 1) Select: (1) expressions group  (2) Face A neutral mesh
+# 2) Set FACE_B below to your wrapped Face B transform name
+# 3) Run
+
+import maya.cmds as cmds
+
+# --- SET THIS ---
+FACE_B = "FaceB"  # <-- change to your wrapped Face B transform name (the transform, not the shape)
+
+OUTPUT_GROUP_NAME = "FaceB_Expressions_GRP"
+BLENDSHAPE_NODE_NAME = "A_Expressions_BS"
+
+
+def _get_transform(node):
+    """Return a transform given a transform or shape."""
+    if not node:
+        return None
+    if cmds.nodeType(node) == "transform":
+        return node
+    parents = cmds.listRelatives(node, parent=True, fullPath=False) or []
+    return parents[0] if parents else node
+
+
+def _get_mesh_transform_from_transform(transform):
+    """Ensure transform has a mesh shape; return transform if valid else None."""
+    shapes = cmds.listRelatives(transform, shapes=True, noIntermediate=True, fullPath=False) or []
+    for s in shapes:
+        if cmds.nodeType(s) == "mesh":
+            return transform
+    return None
+
+
+def _list_expression_meshes(expressions_grp):
+    """Return direct children transforms of the group that contain mesh shapes."""
+    kids = cmds.listRelatives(expressions_grp, children=True, type="transform", fullPath=False) or []
+    result = []
+    for k in kids:
+        if _get_mesh_transform_from_transform(k):
+            result.append(k)
+    return result
+
+
+def _get_or_create_output_group():
+    if cmds.objExists(OUTPUT_GROUP_NAME):
+        return OUTPUT_GROUP_NAME
+    return cmds.group(empty=True, name=OUTPUT_GROUP_NAME)
+
+
+def _get_or_create_blendshape(face_a, first_target):
+    """
+    Create a blendShape on face_a if it doesn't exist.
+    If it exists, reuse it.
+    """
+    if cmds.objExists(BLENDSHAPE_NODE_NAME):
+        # Make sure it actually affects face_a; if not, we'll create a new one.
+        # Quick/robust approach: just trust user naming, else create unique node.
+        return BLENDSHAPE_NODE_NAME
+
+    # Create with the first target so the node exists
+    bs = cmds.blendShape(first_target, face_a, name=BLENDSHAPE_NODE_NAME, frontOfChain=True)[0]
+    return bs
+
+
+def _ensure_target_on_blendshape(bs_node, target_mesh, face_a, target_name):
+    """
+    Make sure target_mesh exists as a target on bs_node.
+    Returns the alias/attribute name you can set (usually same as target mesh name).
+    """
+    # Existing aliases on the node
+    aliases = cmds.aliasAttr(bs_node, query=True) or []
+    # aliases list format: [aliasName, attribute, aliasName, attribute, ...]
+    alias_names = set(aliases[0::2]) if aliases else set()
+
+    if target_name in alias_names:
+        return target_name
+
+    # Add new target
+    # Determine next target index
+    # blendShape -q -wc returns weight count
+    next_index = cmds.blendShape(bs_node, query=True, weightCount=True)
+    cmds.blendShape(bs_node, edit=True, t=(face_a, next_index, target_mesh, 1.0))
+    # Maya usually auto-aliases to target mesh name; but to be safe, set alias
+    try:
+        cmds.aliasAttr(target_name, "{}.w[{}]".format(bs_node, next_index))
+    except:
+        pass
+
+    return target_name
+
+
+def build_faceb_expressions():
+    sel = cmds.ls(selection=True, long=False) or []
+    if len(sel) < 2:
+        cmds.error('Select the expressions group, then Face A (neutral). Selection order matters.')
+        return
+
+    expressions_grp = sel[0]
+    face_a = _get_transform(sel[1])
+    face_a = _get_mesh_transform_from_transform(face_a)
+
+    if not face_a:
+        cmds.error("Face A selection must be a mesh transform.")
+        return
+
+    if not cmds.objExists(FACE_B):
+        cmds.error('FACE_B "{}" does not exist. Set FACE_B at top of script.'.format(FACE_B))
+        return
+
+    face_b = _get_transform(FACE_B)
+    face_b = _get_mesh_transform_from_transform(face_b)
+    if not face_b:
+        cmds.error("FACE_B must be a mesh transform (with a mesh shape).")
+        return
+
+    expressions = _list_expression_meshes(expressions_grp)
+    if not expressions:
+        cmds.error("No mesh children found under the expressions group.")
+        return
+
+    out_grp = _get_or_create_output_group()
+
+    cmds.undoInfo(openChunk=True)
+    try:
+        # Create / reuse blendShape on Face A using first target
+        bs_node = _get_or_create_blendshape(face_a, expressions[0])
+
+        created = []
+        for expr in expressions:
+            expr_name = expr  # transform name
+            # Ensure target is on blendShape
+            weight_alias = _ensure_target_on_blendshape(bs_node, expr, face_a, expr_name)
+
+            # Set all weights to 0 first (clean slate)
+            wcount = cmds.blendShape(bs_node, query=True, weightCount=True)
+            for i in range(wcount):
+                cmds.setAttr("{}.w[{}]".format(bs_node, i), 0)
+
+            # Turn this expression to 100%
+            cmds.setAttr("{}.{}".format(bs_node, weight_alias), 1.0)
+
+            # Duplicate Face B (result should inherit deformation state)
+            dup = cmds.duplicate(face_b, rr=True, name=expr_name + "_tmp")[0]
+            dup = cmds.rename(dup, expr_name)
+
+            # Parent to output group
+            cmds.parent(dup, out_grp)
+
+            created.append(dup)
+
+            # Turn off the expression back to 0
+            cmds.setAttr("{}.{}".format(bs_node, weight_alias), 0)
+
+        # Optional: select output group
+        cmds.select(out_grp, replace=True)
+
+        print("Done. Created {} Face B expressions in group: {}".format(len(created), out_grp))
+
+    finally:
+        cmds.undoInfo(closeChunk=True)
+
+
+# Run
+build_faceb_expressions()
